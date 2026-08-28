@@ -4,6 +4,8 @@ A live visualizer for [Agent Substrate](https://github.com/agent-substrate/subst
 the Kubernetes-native runtime that runs AI agents as snapshot-backed actors in
 gVisor sandboxes instead of always-on pods.
 
+![Substrate Scope](docs/scope.png)
+
 `kubectl get pods` makes substrate look boring because the interesting state
 is not in pods. Substrate Scope shows the runtime the way it actually works:
 
