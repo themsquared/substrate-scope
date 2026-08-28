@@ -1,0 +1,17 @@
+{
+  "name": "substrate-scope",
+  "version": "0.1.0",
+  "description": "Live visualizer for Agent Substrate: worker bays, restore queue, snapshot storage, telemetry, and per-agent activity",
+  "type": "module",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "live": "node server.mjs --live",
+    "stimulate": "node stimulate.mjs"
+  },
+  "engines": { "node": ">=18" },
+  "repository": { "type": "git", "url": "https://github.com/themsquared/substrate-scope.git" },
+  "keywords": ["agent-substrate", "kagent", "kubernetes", "ai-agents", "gvisor", "visualization"],
+  "author": "Mike Moore",
+  "license": "Apache-2.0"
+}

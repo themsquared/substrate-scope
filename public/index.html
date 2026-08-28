@@ -1,0 +1,990 @@
+<title>Substrate Scope</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<style>
+  /* Single-theme dark console — deliberate: this is a projector demo surface. */
+  :root{
+    --ground:#0E1220; --panel:#161C2E; --panel-2:#1C2340; --line:#262E4A;
+    --text:#E8EAF2; --muted:#8A91A8; --faint:#5A6180;
+    --hot:#FFB454; --hot-dim:rgba(255,180,84,.14);
+    --cold:#7DD6E8; --cold-dim:rgba(125,214,232,.12);
+    --ok:#7BD88F; --warn:#F28FAD;
+    --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:"IBM Plex Sans",system-ui,sans-serif;
+    --disp:"Chakra Petch",var(--sans);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;background:var(--ground);color:var(--text);
+       font-family:var(--sans);font-size:14px;overflow-x:hidden}
+  .app{display:flex;flex-direction:column;gap:12px;padding:14px;min-height:100vh}
+
+  /* ── header ─────────────────────────────────────────── */
+  header{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .brand{font-family:var(--disp);font-weight:700;font-size:19px;letter-spacing:.04em}
+  .brand small{color:var(--faint);font-weight:500;margin-left:8px;letter-spacing:.12em;font-size:11px;text-transform:uppercase}
+  .mode{font-family:var(--mono);font-size:11px;padding:3px 10px;border-radius:999px;
+        border:1px solid var(--line);color:var(--cold);letter-spacing:.08em}
+  .mode.live{color:var(--ok);border-color:rgba(123,216,143,.4)}
+
+  .ctrls{display:flex;gap:8px;align-items:center}
+  .ctrl{display:flex;align-items:center;gap:6px;background:var(--panel);
+        border:1px solid var(--line);border-radius:8px;padding:4px 8px}
+  .ctrl span{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted)}
+  .ctrl button, .surge{font-family:var(--mono);font-size:13px;color:var(--text);
+        background:var(--panel-2);border:1px solid var(--line);border-radius:6px;
+        width:26px;height:24px;cursor:pointer;line-height:1}
+  .ctrl button:hover,.surge:hover{border-color:var(--hot);color:var(--hot)}
+  .ctrl button:focus-visible,.surge:focus-visible{outline:2px solid var(--cold);outline-offset:1px}
+  .surge{width:auto;padding:0 12px;font-family:var(--disp);font-weight:600;font-size:11px;
+         letter-spacing:.14em;height:34px;border-radius:8px}
+
+  .stats{display:flex;gap:10px;margin-left:auto;flex-wrap:wrap}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+        padding:6px 14px;text-align:right;min-width:96px}
+  .stat b{display:block;font-family:var(--mono);font-size:19px;font-weight:500;
+          font-variant-numeric:tabular-nums;line-height:1.25}
+  .stat span{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted)}
+  .stat .hotv{color:var(--hot)} .stat .coldv{color:var(--cold)} .stat .okv{color:var(--ok)}
+
+  /* ── main grid ──────────────────────────────────────── */
+  .main{display:grid;grid-template-columns:1fr 320px;grid-template-rows:auto auto;gap:12px}
+  .main .graphs{grid-column:1 / -1}
+  .main .log-rail{max-height:560px}
+  @media (max-width:900px){
+    .main{grid-template-columns:1fr;grid-template-rows:auto auto auto}
+    .main .log-rail{max-height:220px;min-height:160px}
+  }
+
+  .stage{position:relative;display:grid;grid-template-rows:auto auto 1fr;gap:10px;min-height:0;min-width:0;align-content:start}
+  .zone{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-height:0}
+  .zone h2{margin:0 0 10px;font-family:var(--disp);font-size:12px;font-weight:600;
+           text-transform:uppercase;letter-spacing:.16em;color:var(--muted);display:flex;gap:10px;align-items:center}
+  .zone h2 .dot{width:7px;height:7px;border-radius:50%}
+  .pool h2 .dot{background:var(--hot);box-shadow:0 0 8px var(--hot)}
+  .store h2 .dot{background:var(--cold);box-shadow:0 0 8px var(--cold)}
+  .zone h2 .hint{margin-left:auto;font-family:var(--mono);font-size:10px;letter-spacing:.05em;
+                 color:var(--faint);text-transform:none}
+
+  /* worker bays */
+  .bays{display:flex;gap:12px;flex-wrap:wrap}
+  .bay{position:relative;flex:1 1 148px;min-width:148px;height:108px;border-radius:10px;
+       border:1px dashed var(--line);background:
+         linear-gradient(var(--panel-2),var(--panel-2)) padding-box;
+       transition:border-color .4s, box-shadow .6s}
+  .bay .tag{position:absolute;top:6px;left:10px;font-family:var(--mono);font-size:10px;color:var(--faint)}
+  .bay .rt{position:absolute;top:6px;right:10px;font-family:var(--mono);font-size:9px;
+           color:var(--faint);letter-spacing:.08em}
+  .bay .sess{position:absolute;bottom:6px;left:10px;font-family:var(--mono);font-size:9px;
+             color:var(--faint);font-variant-numeric:tabular-nums}
+  .bay.occupied{border:1px solid rgba(255,180,84,.45);
+                box-shadow:0 0 22px rgba(255,180,84,.10), inset 0 0 30px rgba(255,180,84,.05)}
+  .bay.occupied .sess{color:var(--hot)}
+  .bay.warming{border:1px dashed rgba(125,214,232,.55);animation:warm 1s ease-in-out infinite}
+  .bay.warming .sess{color:var(--cold)}
+  @keyframes warm{50%{box-shadow:0 0 18px rgba(125,214,232,.22),
+                      inset 0 0 26px rgba(125,214,232,.08)}}
+  @media (prefers-reduced-motion:reduce){.bay.warming{animation:none}}
+
+  /* restore queue lane */
+  .queue-zone h2 .dot{background:#FFB454;box-shadow:0 0 8px rgba(255,180,84,.7)}
+  .qlane{display:flex;gap:10px;flex-wrap:wrap;align-content:flex-start;min-height:64px}
+  .qlane:empty::after{content:'no backpressure — all demand served';
+                      color:var(--faint);font-family:var(--mono);font-size:10px;
+                      letter-spacing:.15em;line-height:58px;padding-left:4px}
+  .qslot{width:128px;height:62px;border-radius:9px;border:1px dashed rgba(255,180,84,.3)}
+
+  /* telemetry */
+  .graphs h2 .dot{background:#7BD88F;box-shadow:0 0 8px rgba(123,216,143,.7)}
+  .graphs .tabs{display:flex;gap:6px;margin-left:14px}
+  .tab{font-family:var(--mono);font-size:10px;letter-spacing:.08em;color:var(--muted);
+       background:var(--panel-2);border:1px solid var(--line);border-radius:6px;
+       padding:3px 9px;cursor:pointer;text-transform:uppercase}
+  .tab:hover{color:var(--text)}
+  .tab.active{color:var(--hot);border-color:rgba(255,180,84,.5)}
+  .tab:focus-visible{outline:2px solid var(--cold);outline-offset:1px}
+  #chart{width:100%;height:150px;display:block}
+  .surge.on{color:var(--ok);border-color:rgba(123,216,143,.5)}
+  .surge.stopped{color:var(--warn);border-color:rgba(242,143,173,.55)}
+
+  /* storage shelf — one permanent slot per actor; ghosted while its actor is hot */
+  .shelf{display:flex;gap:10px;flex-wrap:wrap;align-content:flex-start;min-height:64px}
+  .slot{width:128px;height:62px;border-radius:9px;border:1px dashed transparent;
+        transition:border-color .4s}
+  .slot.away{border-color:rgba(125,214,232,.22)}
+  .slot.away::after{content:'· · ·';display:block;text-align:center;line-height:60px;
+                    color:var(--faint);font-family:var(--mono);font-size:10px;letter-spacing:.3em}
+
+  /* ── actor chips — ONE geometry everywhere: 128×62, single-line rows ── */
+  .chip{position:absolute;width:128px;height:62px;border-radius:9px;padding:7px 10px;
+        box-sizing:border-box;overflow:hidden;cursor:default;font-family:var(--mono);
+        transition:transform .55s cubic-bezier(.22,.9,.3,1.1), background .4s,
+                   border-color .4s, box-shadow .4s;
+        will-change:transform}
+  .chip .nm{font-size:11px;font-weight:500;line-height:1.3;
+            white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chip .st{font-size:9px;letter-spacing:.1em;text-transform:uppercase;margin-top:2px;
+            line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chip .meta{font-size:9px;color:var(--faint);margin-top:2px;line-height:1.3;
+              font-variant-numeric:tabular-nums;
+              white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chip.cold{background:var(--cold-dim);border:1px solid rgba(125,214,232,.35)}
+  .chip.cold .st{color:var(--cold)}
+  .chip.queued{background:var(--cold-dim);border:1px dashed rgba(255,180,84,.65);
+               animation:knock 1.2s ease-in-out infinite}
+  .chip.queued .st{color:var(--hot)}
+  @keyframes knock{50%{box-shadow:0 0 14px rgba(255,180,84,.25)}}
+  .chip.restoring{background:linear-gradient(100deg,var(--cold-dim),var(--hot-dim));
+                  border:1px solid rgba(255,180,84,.4)}
+  .chip.restoring .st{color:var(--hot)}
+  .chip.running{background:var(--hot-dim);border:1px solid rgba(255,180,84,.55);
+                box-shadow:0 0 16px rgba(255,180,84,.18);animation:pulse 1.6s ease-in-out infinite}
+  .chip.running .st{color:var(--hot)}
+  .chip.checkpointing{background:linear-gradient(100deg,var(--hot-dim),var(--cold-dim));
+                      border:1px solid rgba(125,214,232,.45)}
+  .chip.checkpointing .st{color:var(--cold)}
+  @keyframes pulse{50%{box-shadow:0 0 26px rgba(255,180,84,.32)}}
+  .chip.flashrun{animation:flashrun .8s ease-out 2}
+  @keyframes flashrun{0%{box-shadow:0 0 28px rgba(255,180,84,.55);border-color:rgba(255,180,84,.9)}
+                      100%{box-shadow:none}}
+  @media (prefers-reduced-motion:reduce){.chip.flashrun{animation:none}}
+  /* during restore/checkpoint the progress bar replaces the meta line */
+  .chip .bar{height:3px;border-radius:2px;background:rgba(255,255,255,.08);margin-top:6px;overflow:hidden;display:none}
+  .chip.restoring .meta,.chip.checkpointing .meta{display:none}
+  .chip.restoring .bar,.chip.checkpointing .bar{display:block}
+  .chip .bar i{display:block;height:100%;width:40%;border-radius:2px;
+               background:linear-gradient(90deg,var(--cold),var(--hot));
+               animation:slide .8s linear infinite}
+  @keyframes slide{from{transform:translateX(-100%)}to{transform:translateX(330%)}}
+
+  /* ── event log rail ─────────────────────────────────── */
+  .log-rail{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+            display:grid;grid-template-rows:auto 1fr;min-height:0}
+  .log-rail h2{margin:0;padding:14px 16px 8px;font-family:var(--disp);font-size:12px;font-weight:600;
+               text-transform:uppercase;letter-spacing:.16em;color:var(--muted)}
+  .log{overflow-y:auto;padding:0 16px 14px;font-family:var(--mono);font-size:10.5px;line-height:1.8}
+  .log div{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .log div b{font-weight:500}
+  .log .e-restore b{color:var(--hot)} .log .e-suspend b{color:var(--cold)}
+  .log .e-run b{color:var(--ok)} .log .e-info b{color:var(--text)}
+  .log .e-queue b{color:var(--warn)}
+  .log .t{color:var(--faint);margin-right:6px}
+
+  @media (prefers-reduced-motion:reduce){
+    .chip{transition:none}
+    .chip.running,.chip.queued{animation:none}
+    .chip .bar i{animation:none;width:100%}
+  }
+
+  /* ── agent drawer (click a chip) ────────────────────── */
+  .chip{cursor:pointer}
+  .chip.selected{outline:2px solid var(--hot);outline-offset:2px}
+  .drawer{position:fixed;top:0;right:0;bottom:0;width:min(420px,92vw);z-index:50;
+          background:var(--panel);border-left:1px solid var(--line);
+          box-shadow:-18px 0 40px rgba(0,0,0,.45);
+          display:grid;grid-template-rows:auto 1fr;
+          transform:translateX(105%);transition:transform .3s ease}
+  .drawer.open{transform:none}
+  .d-head{padding:16px;border-bottom:1px solid var(--line)}
+  .d-title{font-family:var(--disp);font-weight:700;font-size:16px;letter-spacing:.03em;
+           display:flex;align-items:center;gap:10px}
+  .d-title .d-state{font-family:var(--mono);font-size:9px;letter-spacing:.12em;
+           text-transform:uppercase;padding:2px 8px;border-radius:999px;border:1px solid var(--line)}
+  .d-state.running{color:var(--hot);border-color:rgba(255,180,84,.5)}
+  .d-state.cold{color:var(--cold);border-color:rgba(125,214,232,.4)}
+  .d-state.queued{color:var(--warn);border-color:rgba(242,143,173,.4)}
+  .d-sub{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:6px;line-height:1.6}
+  #d-close{position:absolute;top:12px;right:14px;font-family:var(--mono);font-size:16px;
+           color:var(--muted);background:var(--panel-2);border:1px solid var(--line);
+           border-radius:6px;width:28px;height:28px;cursor:pointer}
+  #d-close:hover{color:var(--text)}
+  .d-body{overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:10px}
+  .d-entry{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--panel-2)}
+  .d-entry .d-kind{font-family:var(--mono);font-size:9px;letter-spacing:.14em;
+           text-transform:uppercase;display:flex;gap:8px;align-items:baseline}
+  .d-entry .d-kind .d-t{color:var(--faint);letter-spacing:.02em;margin-left:auto}
+  .d-entry .d-text{font-size:12px;line-height:1.5;color:var(--text);margin-top:5px;
+           word-break:break-word}
+  .d-entry.k-prompt .d-kind{color:var(--cold)}
+  .d-entry.k-reply .d-kind{color:var(--ok)}
+  .d-entry.k-error .d-kind{color:var(--warn)}
+  .d-entry.k-restore .d-kind,.d-entry.k-checkpoint .d-kind{color:var(--hot)}
+  .d-entry.k-restore,.d-entry.k-checkpoint,.d-entry.k-queued{background:transparent}
+  .d-entry.k-restore .d-text,.d-entry.k-checkpoint .d-text,.d-entry.k-queued .d-text{
+           font-family:var(--mono);font-size:10px;color:var(--muted)}
+  .d-empty{color:var(--faint);font-family:var(--mono);font-size:11px;padding:20px 4px}
+</style>
+
+<div class="app">
+  <header>
+    <div class="brand">SUBSTRATE SCOPE<small>agent runtime · live actor lifecycle</small></div>
+    <div class="mode" id="mode">SIMULATED</div>
+    <div class="ctrls" id="ctrls">
+      <div class="ctrl"><span>workers</span>
+        <button id="w-dn" aria-label="fewer workers">−</button>
+        <button id="w-up" aria-label="more workers">+</button></div>
+      <div class="ctrl"><span>agents</span>
+        <button id="a-dn" aria-label="fewer agents">−</button>
+        <button id="a-up" aria-label="more agents">+</button></div>
+      <button class="surge" id="surge" title="invoke every idle agent at once">SURGE</button>
+      <button class="surge" id="reset" title="bounce worker pods to free wedged slots (snapshots survive)"
+              style="display:none">RESET POOL</button>
+      <button class="surge" id="autoscale" title="scale the pool automatically on queue depth / idle capacity"
+              style="display:none">AUTOSCALE: OFF</button>
+      <button class="surge" id="demo" title="master switch: stops the stimulator and surge from sending billable chats"
+              style="display:none">STOP DEMO</button>
+    </div>
+    <div class="stats">
+      <div class="stat"><b id="s-actors" class="coldv">0</b><span>agents</span></div>
+      <div class="stat"><b id="s-workers" class="hotv">0</b><span>workers</span></div>
+      <div class="stat"><b id="s-density">—</b><span>density</span></div>
+      <div class="stat"><b id="s-sessions" class="okv">0</b><span>sessions</span></div>
+      <div class="stat"><b id="s-cold">—</b><span>last restore</span></div>
+    </div>
+  </header>
+
+  <div class="main">
+    <div class="stage" id="stage">
+      <section class="zone pool">
+        <h2><span class="dot"></span>WorkerPool · <span id="pool-name">kagent-default</span>
+            <span class="hint">pre-warmed gVisor sandboxes · 1 actor at a time, many per hour</span></h2>
+        <div class="bays" id="bays"></div>
+      </section>
+      <section class="zone queue-zone">
+        <h2><span class="dot"></span>Restore queue
+            <span class="hint">waiting for a free worker · restore ↑ · checkpoint ↓</span></h2>
+        <div class="qlane" id="qlane"></div>
+      </section>
+      <section class="zone store">
+        <h2><span class="dot"></span>Object storage · ate-snapshots
+            <span class="hint">suspended actors, zstd</span></h2>
+        <div class="shelf" id="shelf"></div>
+      </section>
+    </div>
+    <aside class="log-rail">
+      <h2>Event feed</h2>
+      <div class="log" id="log"></div>
+    </aside>
+    <section class="zone graphs">
+      <h2><span class="dot"></span>Telemetry
+        <span class="tabs">
+          <button class="tab active" data-g="cpu">CPU</button>
+          <button class="tab" data-g="mem">Memory</button>
+          <button class="tab" data-g="active">Agents active</button>
+          <button class="tab" data-g="capacity">Capacity</button>
+        </span>
+        <span class="hint" id="g-legend"></span></h2>
+      <canvas id="chart" height="150"></canvas>
+    </section>
+  </div>
+</div>
+
+<div class="drawer" id="drawer" aria-label="agent activity">
+  <div class="d-head">
+    <div class="d-title"><span id="d-name"></span><span class="d-state" id="d-state"></span></div>
+    <div class="d-sub" id="d-sub"></div>
+    <button id="d-close" aria-label="close">×</button>
+  </div>
+  <div class="d-body" id="d-body"></div>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const stage = $('stage'), baysEl = $('bays'), shelfEl = $('shelf'), logEl = $('log');
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ── model ──────────────────────────────────────────────
+  const workers = [];   // {id, el, actor, sessions}
+  const actors  = {};   // name -> {name, ns, el, slot, state, worker, kb}
+  const queue   = [];   // actor names waiting for a free worker
+  let totalSessions = 0, lastRestore = null, lastRestoreAt = null;
+
+  function setWorkers(n, warm){
+    n = Math.max(1, Math.min(8, n));
+    while (workers.length < n){
+      const i = workers.length;
+      const el = document.createElement('div');
+      el.className = 'bay';
+      el.innerHTML = `<span class="tag">worker-${i}</span><span class="rt">runsc</span>
+                      <span class="sess">0 sessions</span>`;
+      baysEl.appendChild(el);
+      const w = { id:i, el, actor:null, sessions:0, ready:!warm };
+      workers.push(w);
+      if (warm){
+        // a new worker boots: pull ateom-gvisor, join the pool, THEN take actors
+        el.classList.add('warming');
+        el.querySelector('.sess').textContent = 'warming · pulling ateom-gvisor';
+        setTimeout(() => {
+          w.ready = true;
+          el.classList.remove('warming');
+          el.querySelector('.sess').textContent = '0 sessions';
+          log('info', `<b>ready</b> worker-${w.id} joined the pool`);
+          pump();
+        }, reduced ? 0 : 1300 + Math.random()*700);
+      }
+    }
+    while (workers.length > n){
+      const w = workers.pop();
+      if (w.actor) suspendVisual(w.actor, 0);
+      w.el.remove();
+    }
+    // bay geometry changed — re-pin every hot chip
+    for (const nm in actors){ const a = actors[nm]; if (a.worker) placeAt(a.el, bayRect(a.worker)); }
+    refreshStats();
+    pump();
+  }
+
+  function freeWorker(){ return workers.find(w => w.ready && !w.actor) || null; }
+
+  // Chips are absolutely positioned on the stage; we measure the target
+  // (bay or shelf slot) and translate — a FLIP-style move between zones.
+  function placeAt(chip, targetRect){
+    const sr = stage.getBoundingClientRect();
+    chip.style.transform =
+      `translate(${targetRect.left - sr.left}px, ${targetRect.top - sr.top}px)`;
+  }
+  function bayRect(w){
+    const r = w.el.getBoundingClientRect();
+    return { left: r.left + (r.width-128)/2, top: r.top + 25 };
+  }
+  function shelfRect(a){
+    const r = a.slot.getBoundingClientRect();
+    return { left: r.left, top: r.top };
+  }
+
+  function ensureActor(name, ns){
+    if (actors[name]) return actors[name];
+    const slot = document.createElement('div');
+    slot.className = 'slot';
+    shelfEl.appendChild(slot);
+    const el = document.createElement('div');
+    el.className = 'chip cold';
+    el.innerHTML = `<div class="nm">${name}</div><div class="st">suspended</div>
+                    <div class="bar"><i></i></div><div class="meta"></div>`;
+    stage.appendChild(el);
+    const a = actors[name] = { name, ns, el, state:'cold', slot, worker:null,
+                               kb: 180 + Math.round(Math.random()*640) };
+    setState(a, 'cold', `${a.kb} KiB · zst`);
+    placeAt(el, shelfRect(a));
+    el.onclick = () => openDrawer(name);   // click into the agent
+    reflowCold();          // a new slot can rewrap the shelf; re-pin everyone
+    refreshStats();
+    return a;
+  }
+
+  function removeActor(){
+    // only evict an agent that is idle and not waiting — never a hot one
+    const name = Object.keys(actors).reverse().find(n => actors[n].state === 'cold');
+    if (!name) return false;
+    const a = actors[name];
+    a.el.remove(); a.slot.remove();
+    delete actors[name];
+    reflowCold(); refreshStats();
+    return true;
+  }
+
+  function reflowCold(){
+    for (const n in actors){
+      const a = actors[n];
+      if (a.state === 'queued' && a.qslot && a.qslot.isConnected)
+        placeAt(a.el, rectOf(a.qslot));
+      else if (a.state === 'cold' || a.state === 'checkpointing')
+        placeAt(a.el, shelfRect(a));
+    }
+  }
+
+  const qlane = $('qlane');
+  function setState(a, state, meta){
+    const was = a.state;
+    a.state = state;
+    a.el.className = 'chip ' + state;
+    a.el.querySelector('.st').textContent =
+      {cold:'suspended', queued:'queued', restoring:'restoring',
+       running:'running', checkpointing:'checkpointing'}[state];
+    if (meta !== undefined) a.el.querySelector('.meta').textContent = meta;
+    // queued chips park in the queue lane, not on their shelf slot
+    if (state === 'queued' && was !== 'queued'){
+      if (!a.qslot){ a.qslot = document.createElement('div'); a.qslot.className = 'qslot'; }
+      qlane.appendChild(a.qslot);
+      a.slot.classList.add('away');
+      placeAt(a.el, rectOf(a.qslot));
+    } else if (state !== 'queued' && was === 'queued' && a.qslot){
+      a.qslot.remove();
+      if (state === 'cold'){ a.slot.classList.remove('away'); placeAt(a.el, shelfRect(a)); }
+      reflowCold();   // remaining queued chips shift left in the lane
+    }
+    if (drawerAgent === a.name && was !== state) renderDrawer();
+  }
+  function rectOf(el){ const r = el.getBoundingClientRect(); return { left:r.left, top:r.top }; }
+
+  function doRestore(a, ms){
+    const w = freeWorker();
+    if (!w) return false;
+    w.actor = a; a.worker = w;
+    w.sessions++; totalSessions++;
+    w.el.classList.add('occupied');
+    w.el.querySelector('.sess').textContent = `${w.sessions} session${w.sessions>1?'s':''}`;
+    a.slot.classList.add('away');
+    setState(a, 'restoring', `← s3://ate-snapshots/${a.ns}`);
+    placeAt(a.el, bayRect(w));
+    lastRestore = ms || lastRestore;
+    lastRestoreAt = Date.now();
+    refreshStats();
+    log('restore', `<b>restore</b> ${a.ns}/${a.name} → worker-${w.id} ${ms?`(${ms} ms)`:''}`);
+    actPush(a.name, 'restore', `restored from snapshot → worker-${w.id}`, ms);
+    setTimeout(() => { if (a.state==='restoring') setState(a,'running','session open · ACP'); },
+               reduced ? 0 : Math.min(ms||550, 900));
+    return true;
+  }
+
+  function suspendVisual(a, ms){
+    const w = a.worker;
+    setState(a, 'checkpointing', 'zstd → object storage');
+    setTimeout(() => {
+      if (w){ w.actor = null; w.el.classList.remove('occupied'); a.worker = null; }
+      a.slot.classList.remove('away');
+      setState(a, 'cold', `${a.kb} KiB · zst`);
+      placeAt(a.el, shelfRect(a));
+      actPush(a.name, 'checkpoint', `zstd snapshot (${a.kb} KiB) → object storage`);
+      pump();   // a slot just freed — admit the next queued actor
+    }, reduced ? 0 : (ms ?? 600));
+  }
+
+  // admit queued actors while workers are free
+  function pump(){
+    while (queue.length && freeWorker()){
+      const a = actors[queue.shift()];
+      if (!a || a.state !== 'queued') continue;
+      doRestore(a, 240 + Math.round(Math.random()*520));
+      scheduleSession(a);
+    }
+    refreshStats();
+  }
+
+  // Self-healing placement: transforms are absolute, so any layout shift
+  // (font load, zone rewrap, pane resize) would strand chips. Re-pin every
+  // settled chip once a second — re-pinning to the same target is a no-op.
+  function reflowAll(){
+    reflowCold();
+    for (const n in actors){
+      const a = actors[n];
+      // only the bay's CURRENT tenant may pin to it — never two chips per sandbox
+      if (a.worker && a.worker.el.isConnected && a.worker.actor === a)
+        placeAt(a.el, bayRect(a.worker));
+    }
+  }
+  addEventListener('resize', reflowAll);
+  setInterval(() => { reflowAll(); refreshStats();
+                      if (drawerAgent) renderDrawer(); }, 1000);
+
+  // ── stats + log ────────────────────────────────────────
+  function refreshStats(){
+    const n = Object.keys(actors).length;
+    $('s-actors').textContent = n;
+    $('s-workers').textContent = workers.length;
+    $('s-density').textContent = workers.length ? (n/workers.length).toFixed(1)+'×' : '—';
+    $('s-sessions').textContent = totalSessions;
+    // sim knows restore latency (ms); live only knows when the last restore
+    // was observed, so it shows freshness instead of a misleading dash
+    $('s-cold').textContent = lastRestore ? lastRestore+' ms'
+      : lastRestoreAt ? Math.max(0, Math.round((Date.now()-lastRestoreAt)/1000)) + 's ago'
+      : '—';
+  }
+  function log(kind, msg){
+    const d = document.createElement('div');
+    d.className = 'e-'+kind;
+    const t = new Date().toTimeString().slice(0,8);
+    d.innerHTML = `<span class="t">${t}</span>${msg}`;
+    logEl.prepend(d);
+    while (logEl.children.length > 200) logEl.lastChild.remove();
+  }
+
+  // ── live-cluster reconciliation ────────────────────────
+  // A 'snapshot' event is the full GetSubstrateStatus response: real worker
+  // pods, real actor runtime states, real assignments. We diff assignments
+  // against the last snapshot to animate restores and checkpoints.
+  const liveAssign = new Map();   // actorId -> workerPod | null
+  function syncBaysLive(pods){
+    const current = workers.map(w => w.pod);
+    if (pods.length === current.length && pods.every((p,i) => p === current[i])) return;
+    const kept = new Map(workers.map(w => [w.pod, w.sessions]));
+    while (workers.length) workers.pop().el.remove();
+    pods.forEach((pod,i) => {
+      const el = document.createElement('div');
+      el.className = 'bay';
+      const short = pod.length > 20 ? '…'+pod.slice(-19) : pod;
+      const n = kept.get(pod) ?? 0;
+      el.innerHTML = `<span class="tag">${short}</span><span class="rt">runsc</span>
+                      <span class="sess">${n} session${n===1?'':'s'}</span>`;
+      baysEl.appendChild(el);
+      workers.push({ id:i, el, actor:null, sessions:n, ready:true, pod });
+    });
+    // re-point hot chips at the rebuilt bay elements (or strand-proof them)
+    const byPod = Object.fromEntries(workers.map(w => [w.pod, w]));
+    for (const n in actors){
+      const a = actors[n];
+      if (!a.worker) continue;
+      const w = byPod[a.worker.pod];
+      if (w){ w.actor = a; a.worker = w; w.el.classList.add('occupied'); }
+      else { a.worker = null; a.slot.classList.remove('away');
+             setState(a, 'cold', 'worker gone'); }
+    }
+    reflowAll();
+  }
+  function applySnapshot(s){
+    const wlist = s.workers ?? [];
+    syncBaysLive(wlist.map(w => w.workerPod).sort());
+    const byPod = Object.fromEntries(workers.map(w => [w.pod, w]));
+    const podByActorId = Object.fromEntries(
+      wlist.filter(w => w.actorId).map(w => [w.actorId, w.workerPod]));
+
+    // Assignments come from the WORKERS list alone: it is small (≤ pool size)
+    // and reliable, and names the template directly. The actors list grows
+    // unbounded and returns partial under load — joining through it made
+    // running sessions invisible whenever their entry flickered out.
+    const asgByName = new Map();   // template name -> {pod, status?}
+    for (const w of wlist)
+      if (w.actorId && w.actorTemplate) asgByName.set(w.actorTemplate, w.workerPod);
+
+    // One agent (template) can own MANY actor entries at once — its golden
+    // actor plus one session actor per chat. The chip represents the agent:
+    // hot if the workers list assigns it a pod; otherwise a stack of snapshots.
+    const groups = new Map();
+    for (const ae of s.actors ?? []){
+      const name = ae.actorTemplateName || 'actor-'+String(ae.actorId).slice(0,8);
+      if (!groups.has(name)) groups.set(name, []);
+      groups.get(name).push(ae);
+    }
+    // an assigned agent whose actor entries flickered out entirely still
+    // deserves its bay visit
+    for (const w of wlist)
+      if (w.actorId && w.actorTemplate && !groups.has(w.actorTemplate))
+        groups.set(w.actorTemplate, []);
+
+    function farewell(a, name){
+      if (a.worker){
+        if (a.worker.actor === a){ a.worker.actor = null; a.worker.el.classList.remove('occupied'); }
+        a.worker = null;
+      }
+      a.slot.classList.remove('away');
+      placeAt(a.el, shelfRect(a));
+      log('suspend', `<b>checkpoint</b> ${a.ns}/${name} → object storage`);
+      actPush(name, 'checkpoint', 'zstd snapshot → object storage');
+    }
+
+    for (const [name, entries] of groups){
+      const a = ensureActor(name, entries[0]?.actorTemplateNamespace || 'kagent');
+      const pod = asgByName.get(name) ?? null;
+      const hot = entries.find(ae => podByActorId[ae.actorId])
+               ?? (pod ? { status: 'Running' } : null);
+      const prev = liveAssign.get(name) ?? null;
+      const stored = Math.max(0, entries.length - (pod ? 1 : 0));
+      let effPod = pod, dwell = false;
+      if (pod && byPod[pod]){
+        const w = byPod[pod];
+        if (prev !== pod){
+          if (a.worker && a.worker !== w && a.worker.actor === a){
+            a.worker.actor = null; a.worker.el.classList.remove('occupied'); }
+          w.actor = a; a.worker = w; w.sessions++; totalSessions++;
+          a.arrivedAt = Date.now();
+          w.el.classList.add('occupied');
+          w.el.querySelector('.sess').textContent = `${w.sessions} session${w.sessions>1?'s':''}`;
+          a.slot.classList.add('away');
+          placeAt(a.el, bayRect(w));
+          log('restore', `<b>restore</b> ${a.ns}/${name} → ${pod}`);
+          actPush(name, 'restore', `restored from snapshot → ${pod}`);
+          lastRestoreAt = Date.now();
+        }
+        const st = String(hot.status || '').toLowerCase();
+        setState(a, (st.includes('restor')||st.includes('resum')) ? 'restoring' : 'running',
+                 hot.status || 'assigned');
+      } else {
+        // min-dwell: keep a fresh bay visit rendered ≥1.6s even if the actor
+        // already checkpointed — otherwise fast sessions read as a flicker.
+        // NEVER dwell if another agent now claims this pod: one actor per
+        // sandbox, always — an incoming tenant evicts the lingering ghost.
+        const podTaken = a.worker &&
+          [...asgByName.entries()].some(([n2, p2]) => p2 === a.worker.pod && n2 !== name);
+        dwell = !!(a.worker && a.worker.actor === a && !podTaken &&
+                   Date.now() - (a.arrivedAt ?? 0) < 1600);
+        if (dwell){ effPod = prev; }
+        else {
+          if (prev) farewell(a, name);
+          // don't clobber a queued chip — the queue feed owns that state
+          if (a.state !== 'queued')
+            setState(a, 'cold', stored > 1 ? `${stored} snapshots · zst` : 'snapshot ✓ · zst');
+        }
+      }
+      // a session can complete entirely between two polls — a new session
+      // actorId appearing for this agent proves the run happened even though
+      // we never sampled it on a worker. Count it and flash the chip.
+      const ids = new Set(entries.map(e => e.actorId));
+      if (a.knownIds){
+        let fresh = 0;
+        for (const id of ids) if (!a.knownIds.has(id)) fresh++;
+        const arrivedThisPass = pod && prev !== pod;
+        // >2 "new" ids at once means the inventory list flickered (partial
+        // response under load), not real sessions — resync silently
+        if (fresh > 0 && fresh <= 2 && !pod && !arrivedThisPass && !dwell){
+          totalSessions += fresh;
+          a.el.classList.remove('flashrun'); void a.el.offsetWidth;  // restart animation
+          a.el.classList.add('flashrun');
+          setTimeout(() => a.el.classList.remove('flashrun'), 1700);
+          log('run', `<b>session</b> ${a.ns}/${name} ran + checkpointed between samples (<0.8s)`);
+        }
+      }
+      a.knownIds = ids;
+      liveAssign.set(name, effPod);
+    }
+
+    // agents that vanished from the inventory entirely
+    for (const name of [...liveAssign.keys()]){
+      if (groups.has(name)) continue;
+      const a = actors[name];
+      if (a){ farewell(a, name); setState(a, 'cold', 'snapshot ✓ · zst'); }
+      liveAssign.delete(name);
+    }
+    refreshStats();
+  }
+
+  // ── per-agent activity + drawer ────────────────────────
+  const agentAct = new Map();     // name -> [{t, kind, text, ms}]
+  let drawerAgent = null;
+  function actPush(name, kind, text, ms, via){
+    if (!agentAct.has(name)) agentAct.set(name, []);
+    const list = agentAct.get(name);
+    list.push({ t: Date.now(), kind, text, ms, via });
+    if (list.length > 80) list.shift();
+    if (drawerAgent === name) renderDrawer();
+  }
+  function openDrawer(name){
+    drawerAgent = name;
+    for (const n in actors) actors[n].el.classList.toggle('selected', n === name);
+    $('drawer').classList.add('open');
+    renderDrawer();
+  }
+  function closeDrawer(){
+    drawerAgent = null;
+    for (const n in actors) actors[n].el.classList.remove('selected');
+    $('drawer').classList.remove('open');
+  }
+  $('d-close').onclick = closeDrawer;
+  addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+  function renderDrawer(){
+    const a = actors[drawerAgent];
+    if (!a) return;
+    $('d-name').textContent = drawerAgent;
+    const st = $('d-state');
+    st.textContent = { cold:'suspended', queued:'queued', restoring:'restoring',
+                       running:'running', checkpointing:'checkpointing' }[a.state] ?? a.state;
+    st.className = 'd-state ' + (a.state === 'running' || a.state === 'restoring' ? 'running'
+                               : a.state === 'queued' ? 'queued' : 'cold');
+    $('d-sub').textContent = `${a.ns}/${drawerAgent}`
+      + (a.worker ? ` · on ${a.worker.pod ?? 'worker-' + a.worker.id}` : '')
+      + ` · ${a.el.querySelector('.meta').textContent}`;
+    const list = agentAct.get(drawerAgent) ?? [];
+    const body = $('d-body');
+    body.innerHTML = list.length ? '' :
+      '<div class="d-empty">no activity yet — waiting for this agent\'s next session</div>';
+    for (const e of [...list].reverse()){
+      const d = document.createElement('div');
+      d.className = 'd-entry k-' + e.kind;
+      const time = new Date(e.t).toTimeString().slice(0, 8);
+      const ms = e.ms ? ` · ${(e.ms / 1000).toFixed(1)}s` : '';
+      const via = e.via ? ` · ${e.via}` : '';
+      d.innerHTML = `<div class="d-kind">${e.kind}${ms}${via}<span class="d-t">${time}</span></div>
+                     <div class="d-text"></div>`;
+      d.querySelector('.d-text').textContent = e.text ?? '';
+      body.appendChild(d);
+    }
+  }
+
+  // ── telemetry charts ───────────────────────────────────
+  const points = [];               // {t,wCpu,wMem,benchCpu,benchMem,active,slots,queued,agents}
+  const chart = $('chart');
+  let curTab = 'cpu';
+  const LEGENDS = {
+    cpu:      'solid: RESERVED by workerpool (slots × unit) · dotted: reserved if always-on pods (agents × unit) · shaded: actual use',
+    mem:      'solid: RESERVED by workerpool (slots × unit) · dotted: reserved if always-on pods (agents × unit) · shaded: actual use',
+    active:   'agents on workers right now · dashed: running average',
+    capacity: 'occupied worker slots, % of pool',
+  };
+  function pushPoint(p){
+    points.push(p);
+    if (points.length > 1200) points.shift();
+    drawChart();
+  }
+  function drawChart(){
+    const W = chart.clientWidth, H = 150;
+    if (!W) return;
+    const dpr = devicePixelRatio || 1;
+    chart.width = W * dpr; chart.height = H * dpr;
+    const g = chart.getContext('2d');
+    g.scale(dpr, dpr);
+    $('g-legend').textContent = LEGENDS[curTab];
+    if (points.length < 2) return;
+    const pad = { l: 46, r: 10, t: 10, b: 18 };
+    const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
+    // Reserved capacity is the honest comparison: always-on pods reserve
+    // agents×unit forever; substrate reserves slots×unit and tracks demand.
+    // Actual usage is context (shaded) — the work costs what it costs
+    // wherever it runs.
+    const sel = {
+      cpu:      [p => (p.slots ?? 0) * (p.unitCpu ?? 50),
+                 p => (p.agents ?? 0) * (p.unitCpu ?? 50), p => p.wCpu ?? 0],
+      mem:      [p => (p.slots ?? 0) * (p.unitMem ?? 128),
+                 p => (p.agents ?? 0) * (p.unitMem ?? 128), p => p.wMem ?? 0],
+      active:   [p => p.active, null, null],
+      capacity: [p => p.slots ? Math.round(p.active / p.slots * 100) : 0, () => 100, null],
+    }[curTab];
+    const solidV = points.map(sel[0]);
+    const dotV = sel[1] ? points.map(sel[1]) : null;
+    const areaV = sel[2] ? points.map(sel[2]) : null;
+    let max = Math.max(...solidV, ...(dotV ?? [0]), ...(areaV ?? [0]), 1) * 1.15;
+    if (curTab === 'capacity') max = 110;
+    const x = i => pad.l + i / (points.length - 1) * iw;
+    const y = v => pad.t + ih - (v / max) * ih;
+    g.font = '9px IBM Plex Mono, monospace';
+    for (let i = 0; i <= 4; i++){                        // grid + axis labels
+      const v = max / 4 * i, yy = y(v);
+      g.strokeStyle = 'rgba(138,145,168,.12)'; g.beginPath();
+      g.moveTo(pad.l, yy); g.lineTo(W - pad.r, yy); g.stroke();
+      g.fillStyle = '#5A6180'; g.textAlign = 'right';
+      g.fillText(Math.round(v) + ({cpu:'m',mem:'Mi',active:'',capacity:'%'}[curTab]), pad.l - 6, yy + 3);
+    }
+    const line = (vals, color, dash, fill) => {
+      g.setLineDash(dash); g.strokeStyle = color; g.lineWidth = 1.6;
+      g.beginPath();
+      vals.forEach((v, i) => i ? g.lineTo(x(i), y(v)) : g.moveTo(x(i), y(v)));
+      g.stroke(); g.setLineDash([]);
+      if (fill){ g.lineTo(x(vals.length - 1), y(0)); g.lineTo(x(0), y(0)); g.closePath();
+                 g.fillStyle = fill; g.fill(); }
+    };
+    if (areaV) line(areaV, 'rgba(255,180,84,.35)', [], 'rgba(255,180,84,.07)');
+    line(solidV, '#FFB454', [], areaV ? undefined : 'rgba(255,180,84,.08)');
+    if (dotV) line(dotV, '#7DD6E8', [5, 4]);
+    if (curTab === 'active'){                            // running average
+      let s = 0; const avg = solidV.map((v, i) => (s += v, s / (i + 1)));
+      line(avg, '#7BD88F', [2, 3]);
+    }
+    const last = solidV[solidV.length - 1];              // emphasized endpoint
+    g.fillStyle = '#FFB454'; g.beginPath();
+    g.arc(x(solidV.length - 1), y(last), 2.5, 0, 7); g.fill();
+    g.textAlign = 'left'; g.fillStyle = '#8A91A8';
+    const span = Math.round((points[points.length-1].t - points[0].t) / 60000);
+    g.fillText(`last ${span || '<1'} min`, pad.l, H - 5);
+  }
+  document.querySelectorAll('.tab').forEach(b => b.onclick = () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    b.classList.add('active'); curTab = b.dataset.g; drawChart();
+  });
+  addEventListener('resize', drawChart);
+
+  // ── event handler (shared by simulator + SSE live feed) ─
+  function handle(ev){
+    switch (ev.type){
+      case 'snapshot':
+        if (ev.workerPools?.length) $('pool-name').textContent = ev.workerPools[0].name;
+        applySnapshot(ev); break;
+      case 'activity': actPush(ev.e.agent, ev.e.kind, ev.e.text, ev.e.ms, ev.e.via); break;
+      case 'activity_history':
+        for (const e of ev.items ?? []){
+          if (!agentAct.has(e.agent)) agentAct.set(e.agent, []);
+          agentAct.get(e.agent).push(e);
+        }
+        if (drawerAgent) renderDrawer();
+        break;
+      case 'metrics': pushPoint(ev.p); break;
+      case 'metrics_history': points.length = 0; points.push(...ev.points); drawChart(); break;
+      case 'autoscale':
+        log('info', `<b>autoscale</b> ${ev.ok ? '' : 'FAILED '}→ ${ev.replicas} workers (${ev.why})`); break;
+      case 'autoscale_state': {
+        const b = $('autoscale');
+        b.textContent = 'AUTOSCALE: ' + (ev.on ? 'ON' : 'OFF');
+        b.classList.toggle('on', ev.on); break; }
+      case 'demo_state': {
+        const b = $('demo');
+        b.textContent = ev.run ? 'STOP DEMO' : 'DEMO STOPPED — START';
+        b.classList.toggle('stopped', !ev.run);
+        log('info', `<b>demo</b> ${ev.run ? 'running — chats dispatching' : 'STOPPED — no billable chats'}`);
+        break; }
+      case 'queue': {   // live mode: agents whose requests are bouncing off a full pool
+        const want = new Set((ev.waiting ?? []).map(w => w.name ?? w));
+        const now = Date.now();
+        for (const n in actors){
+          const a = actors[n];
+          if (want.has(n)){
+            a.unqueuedAt = null;
+            if (a.state === 'cold'){
+              setState(a, 'queued', 'waiting for worker');
+              a.queuedAt = now;
+              log('queue', `<b>queued</b> ${a.ns}/${n} — all workers busy`);
+              actPush(n, 'queued', 'pool full — waiting for a free worker');
+            }
+          } else if (a.state === 'queued'){
+            // linger ≥1.2s after un-queue so the worker assignment (next poll)
+            // can turn this into a direct queue→bay flight instead of a
+            // queue→shelf→bay hop; also hold the queued look ≥2.5s total
+            a.unqueuedAt = now;
+            const rest = Math.max(1200, 2500 - (now - (a.queuedAt ?? 0)));
+            setTimeout(() => {
+              if (a.state === 'queued' && a.unqueuedAt &&
+                  Date.now() - a.unqueuedAt >= 1100)
+                setState(a, 'cold', 'snapshot ✓ · zst');
+            }, rest);
+          }
+        }
+        break; }
+      case 'pool':    $('pool-name').textContent = ev.name || 'kagent-default';
+                      setWorkers(ev.replicas);
+                      log('info', `<b>workerpool</b> ${ev.name||'kagent-default'} replicas=${ev.replicas}`); break;
+      case 'actor':   ensureActor(ev.name, ev.ns||'kagent'); break;
+      case 'restore': { const a = ensureActor(ev.name, ev.ns||'kagent');
+                        if (a.state !== 'cold') break;
+                        if (doRestore(a, ev.ms)) scheduleSession(a);
+                        else {
+                          setState(a, 'queued', 'waiting');
+                          queue.push(a.name);
+                          log('queue', `<b>queued</b> ${a.ns}/${a.name} — all workers busy`);
+                          actPush(a.name, 'queued', 'pool full — waiting for a free worker');
+                        } break; }
+      case 'run':     log('run', `<b>session</b> ${ev.ns||'kagent'}/${ev.name} ${ev.msg||'tool call'}`);
+                      actPush(ev.name, 'session', ev.msg || 'tool call'); break;
+      case 'suspend': { const a = actors[ev.name]; if (a && a.worker){
+                          suspendVisual(a, ev.ms);
+                          log('suspend', `<b>checkpoint</b> ${a.ns}/${a.name} → ${a.kb} KiB zst`);
+                        } break; }
+    }
+  }
+
+  // ── data source: SSE if served by server.mjs, else simulator ─
+  let sim = true;
+  try {
+    if (location.protocol.startsWith('http')){
+      const es = new EventSource('/events');
+      es.onmessage = m => {
+        const ev = JSON.parse(m.data);
+        if (ev.type === 'mode'){ sim = ev.live !== true;
+          const el = $('mode'); el.textContent = sim ? 'SIMULATED' : 'LIVE';
+          el.classList.toggle('live', !sim);
+          // live mode: workers buttons drive the real CR; sim-only controls hide
+          $('a-up').parentElement.style.display = sim ? '' : 'none';
+          $('reset').style.display = sim ? 'none' : '';
+          $('autoscale').style.display = sim ? 'none' : '';
+          $('demo').style.display = sim ? 'none' : '';
+          if (!sim) stopSim();
+          return; }
+        handle(ev);
+      };
+      es.onerror = () => {}; // static hosting: no /events, simulator carries on
+    }
+  } catch(e){}
+
+  // ── simulator ──────────────────────────────────────────
+  const NAMES = ['hello-substrate','k8s-agent','helm-agent','istio-agent','promql-agent',
+                 'argo-rollouts-agent','cilium-agent','doc-agent','observability-agent',
+                 'flux-agent','kyverno-agent','vault-agent','grafana-agent','trivy-agent',
+                 'otel-agent','backstage-agent','crossplane-agent','velero-agent',
+                 'keda-agent','linkerd-agent','harbor-agent','falco-agent'];
+  let nextName = 0;
+  let timers = [];
+  function stopSim(){ timers.forEach(clearTimeout); timers = []; }
+  function later(fn, ms){ timers.push(setTimeout(fn, ms)); }
+
+  function scheduleSession(a){
+    if (!sim) return;
+    const runFor = 2200 + Math.random()*4800;
+    later(() => { if (a.state==='running')
+      handle({ type:'run', name:a.name, msg:['tool call: kubectl get','LLM turn',
+               'MCP call: search','tool call: helm list'][Math.floor(Math.random()*4)] }); },
+      runFor*0.4);
+    later(() => handle({ type:'suspend', name:a.name, ms: 350+Math.random()*350 }), runFor);
+  }
+
+  // demand loop: every beat, some idle agent gets invoked
+  function demand(){
+    if (!sim) return;
+    const idle = Object.keys(actors).filter(n => actors[n].state === 'cold');
+    if (idle.length)
+      handle({ type:'restore', name: idle[Math.floor(Math.random()*idle.length)],
+               ms: 240 + Math.round(Math.random()*520) });
+    later(demand, 700 + Math.random()*1600);
+  }
+
+  function addAgent(){
+    if (nextName >= NAMES.length) return;
+    handle({ type:'actor', name: NAMES[nextName++] });
+  }
+
+  // controls — in live mode the workers buttons scale the real WorkerPool CR
+  function scale(delta){
+    const target = Math.max(1, Math.min(8, workers.length + delta));
+    if (!sim){
+      fetch('/scale', { method:'POST', body: JSON.stringify({ replicas: target }) })
+        .then(r => r.json())
+        .then(j => log('info', `<b>kubectl</b> scale workerpool → ${target} ${j.ok?'accepted':'FAILED: '+j.error}`))
+        .catch(() => log('info', '<b>kubectl</b> scale request failed'));
+      return; // the bay appears when the next poll reports the new replica count
+    }
+    setWorkers(target, delta > 0);
+    log('info', `<b>scale</b> workerpool → ${target} replicas`);
+  }
+  $('w-up').onclick = () => scale(+1);
+  $('w-dn').onclick = () => scale(-1);
+  $('a-up').onclick = addAgent;
+  $('a-dn').onclick = () => { if (removeActor()) log('info', '<b>deleted</b> idle agent'); };
+  $('reset').onclick = () => {
+    log('info', '<b>reset</b> bouncing worker pods — freeing wedged slots');
+    fetch('/reset', { method:'POST' }).then(r => r.json())
+      .then(j => log('info', `<b>reset</b> ${j.ok ? 'rollout restarted' : 'FAILED: '+j.error}`))
+      .catch(() => log('info', '<b>reset</b> request failed'));
+  };
+  $('surge').onclick = () => {
+    if (!sim){
+      log('info', '<b>surge</b> — firing one real chat at every agent');
+      fetch('/surge', { method:'POST' }).then(r => r.json())
+        .then(j => log('info', `<b>surge</b> ${j.ok ? j.fired+' chats dispatched' : 'FAILED: '+j.error}`))
+        .catch(() => log('info', '<b>surge</b> request failed'));
+      return;
+    }
+    const idle = Object.keys(actors).filter(n => actors[n].state === 'cold');
+    log('info', `<b>surge</b> — invoking ${idle.length} idle agents at once`);
+    idle.forEach((n,i) => later(() =>
+      handle({ type:'restore', name:n, ms: 240 + Math.round(Math.random()*520) }), i*90));
+  };
+  $('autoscale').onclick = () => {
+    const want = $('autoscale').textContent.includes('OFF');
+    fetch('/autoscale', { method:'POST', body: JSON.stringify({ on: want }) }).catch(() => {});
+  };
+  $('demo').onclick = () => {
+    const want = $('demo').classList.contains('stopped');   // stopped → start
+    fetch('/demo', { method:'POST', body: JSON.stringify({ run: want }) }).catch(() => {});
+  };
+
+  // synthetic telemetry so the charts live in sim mode too
+  function simMetrics(){
+    if (!sim) return;
+    const vals = Object.values(actors);
+    const running = vals.filter(a => a.state==='running' || a.state==='restoring').length;
+    const queuedC = vals.filter(a => a.state==='queued').length;
+    const n = vals.length;
+    pushPoint({ t: Date.now(),
+      wCpu: Math.round(30 + 14*workers.length + 60*running + Math.random()*12),
+      wMem: Math.round(14*workers.length + 120*running + Math.random()*8),
+      benchCpu: n*7, benchMem: n*204,        // measured always-on agent pod cost
+      unitCpu: 50, unitMem: 128,             // per-unit reservation (requests)
+      active: running, slots: workers.length, queued: queuedC, agents: n });
+    later(simMetrics, 2000);
+  }
+
+  function startSim(){
+    if (!sim) return;   // a LIVE mode event beat us to it
+    handle({ type:'pool', replicas:3, name:'kagent-default' });
+    for (let i=0;i<12;i++) later(addAgent, 120*i);
+    later(demand, 1600);
+    later(simMetrics, 1000);
+    log('info', '<b>substrate scope</b> simulated feed — hit SURGE, then scale workers +');
+  }
+  // give a server-sent mode event a beat to arrive before the simulator starts
+  setTimeout(startSim, location.protocol.startsWith('http') ? 400 : 0);
+})();
+</script>
