@@ -491,16 +491,21 @@
   // fairness classification, shared by the tab, the chip badges, the feed,
   // and the drawer. Usage is not noise: 'busiest' is neutral; it escalates to
   // 'noisy neighbor' only when others are genuinely waiting.
+  // Flags describe CURRENT behavior, so they use a ~60s decaying window
+  // (winWork/winQueue), not the cumulative counters the fairness tab shows.
+  // A shelved hog stops accruing and its flag fades out within a minute —
+  // cumulative flags could never be un-earned.
   let fairFlags = { busiest: null, noisy: null, starved: null };
   function computeFairFlags(){
     const rows = Object.values(actors)
-      .map(a => ({ name: a.name, work: a.fairWork ?? 0, queue: a.fairQueue ?? 0 }))
+      .map(a => ({ name: a.name, work: a.winWork ?? 0, queue: a.winQueue ?? 0 }))
       .sort((r1, r2) => (r2.work + r2.queue) - (r1.work + r1.queue));
     const totalWork = rows.reduce((s, r) => s + r.work, 0);
+    if (totalWork < 5) return { busiest: null, noisy: null, starved: null };  // quiet pool
     const fairShare = totalWork / Math.max(rows.length, 1);
     const top = rows[0];
     const othersWait = rows.slice(1).reduce((s, r) => s + r.queue, 0);
-    const busiest = top && totalWork && top.work > fairShare * 1.5 ? top.name : null;
+    const busiest = top && top.work > fairShare * 1.5 ? top.name : null;
     const noisy = busiest && othersWait >= 10 && othersWait > top.queue * 2 ? busiest : null;
     const starved = rows.filter(r => r.queue > r.work && r.queue > 2)
       .sort((r1, r2) => (r2.queue - r2.work) - (r1.queue - r1.work))[0]?.name ?? null;
@@ -530,11 +535,18 @@
   }
   setInterval(() => {
     reflowAll(); refreshStats();
-    // fairness accrual: 1s of worker time while hot, 1s of waiting while queued
+    // fairness accrual: 1s of worker time while hot, 1s of waiting while queued.
+    // fairWork/fairQueue are cumulative (the tab); winWork/winQueue decay with
+    // a ~60s horizon (the flags).
+    const DECAY = 59 / 60;
     for (const n in actors){
       const a = actors[n];
-      if (a.state === 'running' || a.state === 'restoring') a.fairWork = (a.fairWork ?? 0) + 1;
-      else if (a.state === 'queued') a.fairQueue = (a.fairQueue ?? 0) + 1;
+      const hot = a.state === 'running' || a.state === 'restoring';
+      const waiting = a.state === 'queued';
+      if (hot) a.fairWork = (a.fairWork ?? 0) + 1;
+      else if (waiting) a.fairQueue = (a.fairQueue ?? 0) + 1;
+      a.winWork = (a.winWork ?? 0) * DECAY + (hot ? 1 : 0);
+      a.winQueue = (a.winQueue ?? 0) * DECAY + (waiting ? 1 : 0);
     }
     applyFairFlags();
     if (curTab === 'fairness') drawChart();
