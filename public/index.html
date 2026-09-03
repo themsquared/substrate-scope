@@ -142,6 +142,15 @@
                       border:1px solid rgba(125,214,232,.45)}
   .chip.checkpointing .st{color:var(--cold)}
   @keyframes pulse{50%{box-shadow:0 0 26px rgba(255,180,84,.32)}}
+  /* fairness flags: a corner beacon on the agent's chip, wherever it is */
+  .chip.flag-noisy::after,.chip.flag-busiest::after,.chip.flag-starved::after{
+    content:'';position:absolute;top:6px;right:7px;width:7px;height:7px;border-radius:50%}
+  .chip.flag-noisy::after{background:var(--hot);box-shadow:0 0 9px var(--hot);
+    animation:pulse 1.6s ease-in-out infinite}
+  .chip.flag-busiest::after{background:transparent;border:1.5px solid var(--hot)}
+  .chip.flag-starved::after{background:var(--warn);box-shadow:0 0 9px var(--warn)}
+  .chip.flag-noisy .nm,.chip.flag-busiest .nm,.chip.flag-starved .nm{padding-right:13px}
+  .log .e-fair b{color:var(--warn)}
   .chip.flashrun{animation:flashrun .8s ease-out 2}
   @keyframes flashrun{0%{box-shadow:0 0 28px rgba(255,180,84,.55);border-color:rgba(255,180,84,.9)}
                       100%{box-shadow:none}}
@@ -475,6 +484,44 @@
     }
   }
   addEventListener('resize', reflowAll);
+  // fairness classification, shared by the tab, the chip badges, the feed,
+  // and the drawer. Usage is not noise: 'busiest' is neutral; it escalates to
+  // 'noisy neighbor' only when others are genuinely waiting.
+  let fairFlags = { busiest: null, noisy: null, starved: null };
+  function computeFairFlags(){
+    const rows = Object.values(actors)
+      .map(a => ({ name: a.name, work: a.fairWork ?? 0, queue: a.fairQueue ?? 0 }))
+      .sort((r1, r2) => (r2.work + r2.queue) - (r1.work + r1.queue));
+    const totalWork = rows.reduce((s, r) => s + r.work, 0);
+    const fairShare = totalWork / Math.max(rows.length, 1);
+    const top = rows[0];
+    const othersWait = rows.slice(1).reduce((s, r) => s + r.queue, 0);
+    const busiest = top && totalWork && top.work > fairShare * 1.5 ? top.name : null;
+    const noisy = busiest && othersWait >= 10 && othersWait > top.queue * 2 ? busiest : null;
+    const starved = rows.filter(r => r.queue > r.work && r.queue > 2)
+      .sort((r1, r2) => (r2.queue - r2.work) - (r1.queue - r1.work))[0]?.name ?? null;
+    return { busiest, noisy, starved };
+  }
+  const FLAG_WORDS = { noisy: 'a noisy neighbor', busiest: 'the busiest agent', starved: 'starved' };
+  function applyFairFlags(){
+    const next = computeFairFlags();
+    for (const kind of ['noisy', 'busiest', 'starved']){
+      const prev = fairFlags[kind], now = next[kind];
+      if (prev === now) continue;
+      // 'busiest' transitions stay quiet in the feed; escalations don't
+      if (now && kind !== 'busiest')
+        log('fair', `<b>fairness</b> ${now} is now ${FLAG_WORDS[kind]}`);
+      else if (prev && !now && kind !== 'busiest')
+        log('fair', `<b>fairness</b> ${prev} is no longer ${FLAG_WORDS[kind]}`);
+    }
+    fairFlags = next;
+    for (const n in actors){
+      const el = actors[n].el;
+      el.classList.toggle('flag-noisy', n === fairFlags.noisy);
+      el.classList.toggle('flag-busiest', n === fairFlags.busiest && n !== fairFlags.noisy);
+      el.classList.toggle('flag-starved', n === fairFlags.starved);
+    }
+  }
   setInterval(() => {
     reflowAll(); refreshStats();
     // fairness accrual: 1s of worker time while hot, 1s of waiting while queued
@@ -483,6 +530,7 @@
       if (a.state === 'running' || a.state === 'restoring') a.fairWork = (a.fairWork ?? 0) + 1;
       else if (a.state === 'queued') a.fairQueue = (a.fairQueue ?? 0) + 1;
     }
+    applyFairFlags();
     if (curTab === 'fairness') drawChart();
     if (drawerAgent) renderDrawer();
   }, 1000);
@@ -690,7 +738,10 @@
                        running:'running', checkpointing:'checkpointing' }[a.state] ?? a.state;
     st.className = 'd-state ' + (a.state === 'running' || a.state === 'restoring' ? 'running'
                                : a.state === 'queued' ? 'queued' : 'cold');
-    $('d-sub').textContent = `${a.ns}/${drawerAgent}`
+    const flag = drawerAgent === fairFlags.noisy ? '⚑ noisy neighbor · '
+               : drawerAgent === fairFlags.busiest ? '⚑ busiest · '
+               : drawerAgent === fairFlags.starved ? '⚑ starved · ' : '';
+    $('d-sub').textContent = flag + `${a.ns}/${drawerAgent}`
       + (a.worker ? ` · on ${a.worker.pod ?? 'worker-' + a.worker.id}` : '')
       + ` · ${a.el.querySelector('.meta').textContent}`
       + ((a.fairWork || a.fairQueue)
@@ -823,16 +874,9 @@
     const iw = W - pad.l - pad.r;
     const rowH = Math.min(13, (H - pad.t - 6) / Math.max(rows.length, 1));
     const maxVal = Math.max(...rows.map(r => Math.max(r.work, r.queue)), 1);
-    // Usage is not noise. The top agent is flagged 'busiest' (neutral) when it
-    // simply leads, and escalates to 'noisy neighbor' only when its outsized
-    // share coincides with real waiting by OTHERS — harm, not popularity.
-    const fairShare = totalWork / Math.max(rows.length, 1);
-    const top = rows[0];
-    const othersWait = rows.slice(1).reduce((s, r) => s + r.queue, 0);
-    const busiest = top && totalWork && top.work > fairShare * 1.5 ? top.name : null;
-    const noisy = busiest && othersWait >= 10 && othersWait > top.queue * 2 ? top.name : null;
-    const starved = rows.filter(r => r.queue > r.work && r.queue > 2)
-      .sort((r1, r2) => (r2.queue - r2.work) - (r1.queue - r1.work))[0]?.name ?? null;
+    // classification comes from the shared fairFlags (computed each second),
+    // so the tab, the chip badges, the feed, and the drawer always agree
+    const { busiest, noisy, starved } = fairFlags;
     rows.forEach((r, i) => {
       const yy = pad.t + i * rowH;
       const tag = r.name === noisy ? ' ◀ noisy neighbor'
