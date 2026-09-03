@@ -716,13 +716,27 @@
   const points = [];               // {t,wCpu,wMem,benchCpu,benchMem,active,slots,queued,agents}
   const chart = $('chart');
   let curTab = 'cpu';
+  // legend segments: [swatchColor|null, label]; null = plain text
   const LEGENDS = {
-    cpu:      'solid: RESERVED by workerpool (slots × unit) · dotted: reserved if always-on pods (agents × unit) · shaded: actual use',
-    mem:      'solid: RESERVED by workerpool (slots × unit) · dotted: reserved if always-on pods (agents × unit) · shaded: actual use',
-    active:   'agents on workers right now · dashed: running average',
-    capacity: 'occupied worker slots, % of pool',
-    fairness: 'per-agent share of worker-seconds (amber) and time spent queued (pink) since page load — a slot hog shows up as one long bar',
+    cpu:      [['#FFB454','reserved by workerpool (slots × unit)'],
+               ['#7DD6E8','reserved if always-on pods (agents × unit)'],
+               ['rgba(255,180,84,.4)','actual use']],
+    mem:      [['#FFB454','reserved by workerpool (slots × unit)'],
+               ['#7DD6E8','reserved if always-on pods (agents × unit)'],
+               ['rgba(255,180,84,.4)','actual use']],
+    active:   [['#FFB454','agents on workers right now'],
+               ['#7BD88F','running average']],
+    capacity: [['#FFB454','occupied worker slots, % of pool']],
+    fairness: [['#FFB454','time it GOT the pool'],
+               ['#F28FAD','time it WAITED'],
+               [null,'long amber alone = just busy · long amber while others wait = noisy neighbor']],
   };
+  function renderLegend(){
+    $('g-legend').innerHTML = LEGENDS[curTab].map(([sw, label]) => {
+      const dot = sw ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${sw};margin-right:5px;vertical-align:-1px"></span>` : '';
+      return `<span style="margin-right:14px;white-space:nowrap">${dot}${label}</span>`;
+    }).join('');
+  }
   function pushPoint(p){
     points.push(p);
     if (points.length > 1200) points.shift();
@@ -735,7 +749,7 @@
     chart.width = W * dpr; chart.height = H * dpr;
     const g = chart.getContext('2d');
     g.scale(dpr, dpr);
-    $('g-legend').textContent = LEGENDS[curTab];
+    renderLegend();
     if (curTab === 'fairness') return drawFairness(g, W, H);
     if (points.length < 2) return;
     const pad = { l: 46, r: 10, t: 10, b: 18 };
@@ -805,22 +819,37 @@
       g.fillText('no worker time observed yet — accrues while agents run', 46, 30);
       return;
     }
-    const pad = { l: 130, r: 190, t: 8 };
+    const pad = { l: 138, r: 268, t: 8 };
     const iw = W - pad.l - pad.r;
-    const rowH = Math.min(14, (H - pad.t - 6) / Math.max(rows.length, 1));
+    const rowH = Math.min(13, (H - pad.t - 6) / Math.max(rows.length, 1));
     const maxVal = Math.max(...rows.map(r => Math.max(r.work, r.queue)), 1);
+    // Usage is not noise. The top agent is flagged 'busiest' (neutral) when it
+    // simply leads, and escalates to 'noisy neighbor' only when its outsized
+    // share coincides with real waiting by OTHERS — harm, not popularity.
+    const fairShare = totalWork / Math.max(rows.length, 1);
+    const top = rows[0];
+    const othersWait = rows.slice(1).reduce((s, r) => s + r.queue, 0);
+    const busiest = top && totalWork && top.work > fairShare * 1.5 ? top.name : null;
+    const noisy = busiest && othersWait >= 10 && othersWait > top.queue * 2 ? top.name : null;
+    const starved = rows.filter(r => r.queue > r.work && r.queue > 2)
+      .sort((r1, r2) => (r2.queue - r2.work) - (r1.queue - r1.work))[0]?.name ?? null;
     rows.forEach((r, i) => {
       const yy = pad.t + i * rowH;
-      g.fillStyle = '#8A91A8'; g.textAlign = 'right';
+      const tag = r.name === noisy ? ' ◀ noisy neighbor'
+                : r.name === busiest ? ' ◀ busiest'
+                : r.name === starved ? ' ◀ starved' : '';
+      g.textAlign = 'right';
+      g.fillStyle = r.name === noisy || r.name === busiest ? '#FFB454'
+                  : r.name === starved ? '#F28FAD' : '#8A91A8';
       g.fillText(r.name.slice(0, 18), pad.l - 8, yy + rowH - 4);
       const wbar = r.work / maxVal * iw, qbar = r.queue / maxVal * iw;
       g.fillStyle = 'rgba(255,180,84,.75)';
       g.fillRect(pad.l, yy + 2, Math.max(wbar, r.work ? 2 : 0), rowH - 7);
-      g.fillStyle = 'rgba(242,143,173,.65)';
+      g.fillStyle = 'rgba(242,143,173,.75)';
       g.fillRect(pad.l, yy + rowH - 5, Math.max(qbar, r.queue ? 2 : 0), 2);
       const share = totalWork ? Math.round(r.work / totalWork * 100) : 0;
       g.fillStyle = '#5A6180'; g.textAlign = 'left';
-      g.fillText(`${share}% · ${r.work}s work · ${r.queue}s wait · ${r.sessions} sess`,
+      g.fillText(`${share}% · waited ${r.queue}s · ${r.sessions} sess${tag}`,
                  pad.l + iw + 8, yy + rowH - 4);
     });
   }
