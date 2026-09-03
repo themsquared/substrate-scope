@@ -270,6 +270,7 @@
           <button class="tab" data-g="mem">Memory</button>
           <button class="tab" data-g="active">Agents active</button>
           <button class="tab" data-g="capacity">Capacity</button>
+          <button class="tab" data-g="fairness">Fairness</button>
         </span>
         <span class="hint" id="g-legend"></span></h2>
       <canvas id="chart" height="150"></canvas>
@@ -421,6 +422,7 @@
     if (!w) return false;
     w.actor = a; a.worker = w;
     w.sessions++; totalSessions++;
+    a.fairSessions = (a.fairSessions ?? 0) + 1;
     w.el.classList.add('occupied');
     w.el.querySelector('.sess').textContent = `${w.sessions} session${w.sessions>1?'s':''}`;
     a.slot.classList.add('away');
@@ -473,8 +475,17 @@
     }
   }
   addEventListener('resize', reflowAll);
-  setInterval(() => { reflowAll(); refreshStats();
-                      if (drawerAgent) renderDrawer(); }, 1000);
+  setInterval(() => {
+    reflowAll(); refreshStats();
+    // fairness accrual: 1s of worker time while hot, 1s of waiting while queued
+    for (const n in actors){
+      const a = actors[n];
+      if (a.state === 'running' || a.state === 'restoring') a.fairWork = (a.fairWork ?? 0) + 1;
+      else if (a.state === 'queued') a.fairQueue = (a.fairQueue ?? 0) + 1;
+    }
+    if (curTab === 'fairness') drawChart();
+    if (drawerAgent) renderDrawer();
+  }, 1000);
 
   // ── stats + log ────────────────────────────────────────
   function refreshStats(){
@@ -585,6 +596,7 @@
           if (a.worker && a.worker !== w && a.worker.actor === a){
             a.worker.actor = null; a.worker.el.classList.remove('occupied'); }
           w.actor = a; a.worker = w; w.sessions++; totalSessions++;
+          a.fairSessions = (a.fairSessions ?? 0) + 1;
           a.arrivedAt = Date.now();
           w.el.classList.add('occupied');
           w.el.querySelector('.sess').textContent = `${w.sessions} session${w.sessions>1?'s':''}`;
@@ -680,7 +692,9 @@
                                : a.state === 'queued' ? 'queued' : 'cold');
     $('d-sub').textContent = `${a.ns}/${drawerAgent}`
       + (a.worker ? ` · on ${a.worker.pod ?? 'worker-' + a.worker.id}` : '')
-      + ` · ${a.el.querySelector('.meta').textContent}`;
+      + ` · ${a.el.querySelector('.meta').textContent}`
+      + ((a.fairWork || a.fairQueue)
+         ? ` · ${a.fairWork ?? 0}s on workers / ${a.fairQueue ?? 0}s queued` : '');
     const list = agentAct.get(drawerAgent) ?? [];
     const body = $('d-body');
     body.innerHTML = list.length ? '' :
@@ -707,6 +721,7 @@
     mem:      'solid: RESERVED by workerpool (slots × unit) · dotted: reserved if always-on pods (agents × unit) · shaded: actual use',
     active:   'agents on workers right now · dashed: running average',
     capacity: 'occupied worker slots, % of pool',
+    fairness: 'per-agent share of worker-seconds (amber) and time spent queued (pink) since page load — a slot hog shows up as one long bar',
   };
   function pushPoint(p){
     points.push(p);
@@ -721,6 +736,7 @@
     const g = chart.getContext('2d');
     g.scale(dpr, dpr);
     $('g-legend').textContent = LEGENDS[curTab];
+    if (curTab === 'fairness') return drawFairness(g, W, H);
     if (points.length < 2) return;
     const pad = { l: 46, r: 10, t: 10, b: 18 };
     const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
@@ -773,10 +789,53 @@
     const span = Math.round((points[points.length-1].t - points[0].t) / 60000);
     g.fillText(`last ${span || '<1'} min`, pad.l, H - 5);
   }
+  // Fairness: who is actually getting the pool. Worker-seconds answer "who is
+  // hogging slots"; queue-seconds answer "who is paying for it". Both accrue
+  // client-side once a second, identically in sim and live modes.
+  function drawFairness(g, W, H){
+    const rows = Object.values(actors)
+      .map(a => ({ name: a.name, work: a.fairWork ?? 0, queue: a.fairQueue ?? 0,
+                   sessions: a.fairSessions ?? 0 }))
+      .sort((r1, r2) => (r2.work + r2.queue) - (r1.work + r1.queue))
+      .slice(0, 10);
+    const totalWork = rows.reduce((s, r) => s + r.work, 0);
+    g.font = '9px IBM Plex Mono, monospace';
+    if (!totalWork && !rows.some(r => r.queue)){
+      g.fillStyle = '#5A6180'; g.textAlign = 'left';
+      g.fillText('no worker time observed yet — accrues while agents run', 46, 30);
+      return;
+    }
+    const pad = { l: 130, r: 190, t: 8 };
+    const iw = W - pad.l - pad.r;
+    const rowH = Math.min(14, (H - pad.t - 6) / Math.max(rows.length, 1));
+    const maxVal = Math.max(...rows.map(r => Math.max(r.work, r.queue)), 1);
+    rows.forEach((r, i) => {
+      const yy = pad.t + i * rowH;
+      g.fillStyle = '#8A91A8'; g.textAlign = 'right';
+      g.fillText(r.name.slice(0, 18), pad.l - 8, yy + rowH - 4);
+      const wbar = r.work / maxVal * iw, qbar = r.queue / maxVal * iw;
+      g.fillStyle = 'rgba(255,180,84,.75)';
+      g.fillRect(pad.l, yy + 2, Math.max(wbar, r.work ? 2 : 0), rowH - 7);
+      g.fillStyle = 'rgba(242,143,173,.65)';
+      g.fillRect(pad.l, yy + rowH - 5, Math.max(qbar, r.queue ? 2 : 0), 2);
+      const share = totalWork ? Math.round(r.work / totalWork * 100) : 0;
+      g.fillStyle = '#5A6180'; g.textAlign = 'left';
+      g.fillText(`${share}% · ${r.work}s work · ${r.queue}s wait · ${r.sessions} sess`,
+                 pad.l + iw + 8, yy + rowH - 4);
+    });
+  }
+
   document.querySelectorAll('.tab').forEach(b => b.onclick = () => {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     b.classList.add('active'); curTab = b.dataset.g; drawChart();
   });
+  // deep-link a tab: #cpu #mem #active #capacity #fairness
+  const wantTab = location.hash.slice(1);
+  if (LEGENDS[wantTab]){
+    document.querySelectorAll('.tab').forEach(t =>
+      t.classList.toggle('active', t.dataset.g === wantTab));
+    curTab = wantTab;
+  }
   addEventListener('resize', drawChart);
 
   // ── event handler (shared by simulator + SSE live feed) ─
