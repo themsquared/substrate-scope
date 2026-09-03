@@ -142,14 +142,18 @@
                       border:1px solid rgba(125,214,232,.45)}
   .chip.checkpointing .st{color:var(--cold)}
   @keyframes pulse{50%{box-shadow:0 0 26px rgba(255,180,84,.32)}}
-  /* fairness flags: a corner beacon on the agent's chip, wherever it is */
+  /* fairness flags: a corner emoji on the agent's chip, wherever it is */
   .chip.flag-noisy::after,.chip.flag-busiest::after,.chip.flag-starved::after{
-    content:'';position:absolute;top:6px;right:7px;width:7px;height:7px;border-radius:50%}
-  .chip.flag-noisy::after{background:var(--hot);box-shadow:0 0 9px var(--hot);
-    animation:pulse 1.6s ease-in-out infinite}
-  .chip.flag-busiest::after{background:transparent;border:1.5px solid var(--hot)}
-  .chip.flag-starved::after{background:var(--warn);box-shadow:0 0 9px var(--warn)}
-  .chip.flag-noisy .nm,.chip.flag-busiest .nm,.chip.flag-starved .nm{padding-right:13px}
+    position:absolute;top:4px;right:6px;font-size:11px;line-height:1}
+  .chip.flag-noisy::after{content:'📢';animation:pulse 1.6s ease-in-out infinite;
+    filter:drop-shadow(0 0 4px rgba(255,180,84,.8))}
+  .chip.flag-busiest::after{content:'🔥';filter:drop-shadow(0 0 3px rgba(255,180,84,.6))}
+  .chip.flag-starved::after{content:'🍽️';filter:drop-shadow(0 0 4px rgba(242,143,173,.8))}
+  .chip.flag-noisy .nm,.chip.flag-busiest .nm,.chip.flag-starved .nm{padding-right:16px}
+  .d-flag{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;
+          padding:2px 8px;border-radius:999px;border:1px solid var(--line)}
+  .d-flag.noisy,.d-flag.busiest{color:var(--hot);border-color:rgba(255,180,84,.5)}
+  .d-flag.starved{color:var(--warn);border-color:rgba(242,143,173,.5)}
   .log .e-fair b{color:var(--warn)}
   .chip.flashrun{animation:flashrun .8s ease-out 2}
   @keyframes flashrun{0%{box-shadow:0 0 28px rgba(255,180,84,.55);border-color:rgba(255,180,84,.9)}
@@ -289,7 +293,7 @@
 
 <div class="drawer" id="drawer" aria-label="agent activity">
   <div class="d-head">
-    <div class="d-title"><span id="d-name"></span><span class="d-state" id="d-state"></span></div>
+    <div class="d-title"><span id="d-name"></span><span class="d-state" id="d-state"></span><span class="d-flag" id="d-flag" hidden></span></div>
     <div class="d-sub" id="d-sub"></div>
     <button id="d-close" aria-label="close">×</button>
   </div>
@@ -502,7 +506,9 @@
       .sort((r1, r2) => (r2.queue - r2.work) - (r1.queue - r1.work))[0]?.name ?? null;
     return { busiest, noisy, starved };
   }
-  const FLAG_WORDS = { noisy: 'a noisy neighbor', busiest: 'the busiest agent', starved: 'starved' };
+  const FLAGS = { noisy:   { icon: '📢', word: 'a noisy neighbor' },
+                  busiest: { icon: '🔥', word: 'the busiest agent' },
+                  starved: { icon: '🍽️', word: 'starved' } };
   function applyFairFlags(){
     const next = computeFairFlags();
     for (const kind of ['noisy', 'busiest', 'starved']){
@@ -510,9 +516,9 @@
       if (prev === now) continue;
       // 'busiest' transitions stay quiet in the feed; escalations don't
       if (now && kind !== 'busiest')
-        log('fair', `<b>fairness</b> ${now} is now ${FLAG_WORDS[kind]}`);
+        log('fair', `<b>fairness</b> ${now} is now ${FLAGS[kind].icon} ${FLAGS[kind].word}`);
       else if (prev && !now && kind !== 'busiest')
-        log('fair', `<b>fairness</b> ${prev} is no longer ${FLAG_WORDS[kind]}`);
+        log('fair', `<b>fairness</b> ${prev} is no longer ${FLAGS[kind].word}`);
     }
     fairFlags = next;
     for (const n in actors){
@@ -738,10 +744,14 @@
                        running:'running', checkpointing:'checkpointing' }[a.state] ?? a.state;
     st.className = 'd-state ' + (a.state === 'running' || a.state === 'restoring' ? 'running'
                                : a.state === 'queued' ? 'queued' : 'cold');
-    const flag = drawerAgent === fairFlags.noisy ? '⚑ noisy neighbor · '
-               : drawerAgent === fairFlags.busiest ? '⚑ busiest · '
-               : drawerAgent === fairFlags.starved ? '⚑ starved · ' : '';
-    $('d-sub').textContent = flag + `${a.ns}/${drawerAgent}`
+    const fk = drawerAgent === fairFlags.noisy ? 'noisy'
+             : drawerAgent === fairFlags.busiest ? 'busiest'
+             : drawerAgent === fairFlags.starved ? 'starved' : null;
+    const fp = $('d-flag');
+    fp.hidden = !fk;
+    if (fk){ fp.textContent = `${FLAGS[fk].icon} ${fk === 'noisy' ? 'noisy neighbor' : fk}`;
+             fp.className = 'd-flag ' + fk; }
+    $('d-sub').textContent = `${a.ns}/${drawerAgent}`
       + (a.worker ? ` · on ${a.worker.pod ?? 'worker-' + a.worker.id}` : '')
       + ` · ${a.el.querySelector('.meta').textContent}`
       + ((a.fairWork || a.fairQueue)
@@ -879,9 +889,9 @@
     const { busiest, noisy, starved } = fairFlags;
     rows.forEach((r, i) => {
       const yy = pad.t + i * rowH;
-      const tag = r.name === noisy ? ' ◀ noisy neighbor'
-                : r.name === busiest ? ' ◀ busiest'
-                : r.name === starved ? ' ◀ starved' : '';
+      const tag = r.name === noisy ? ' 📢 noisy neighbor'
+                : r.name === busiest ? ' 🔥 busiest'
+                : r.name === starved ? ' 🍽️ starved' : '';
       g.textAlign = 'right';
       g.fillStyle = r.name === noisy || r.name === busiest ? '#FFB454'
                   : r.name === starved ? '#F28FAD' : '#8A91A8';
