@@ -113,6 +113,26 @@ const server = createServer(async (req, res) => {
     });
     return;
   }
+  if (req.url === '/chat' && req.method === 'POST') {
+    // the drawer's "talk to the agent": one real chat, which restores the
+    // actor — activation you can watch happen on the board
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      res.setHeader('Content-Type', 'application/json');
+      if (!LIVE || source !== 'kagent')
+        return res.end(JSON.stringify({ ok: false, error: 'chat needs --live with the kagent source' }));
+      if (!demoRun)
+        return res.end(JSON.stringify({ ok: false, error: 'demo is stopped (STOP DEMO)' }));
+      try {
+        const { ns, agent, text } = JSON.parse(body);
+        if (!agent || !text) throw new Error('bad request');
+        chatWithAgent(ns || 'kagent', agent, String(text).slice(0, 1000), 'you');
+        res.end('{"ok":true}');
+      } catch { res.writeHead(400); res.end('{"ok":false}'); }
+    });
+    return;
+  }
   if (req.url === '/surge' && req.method === 'POST') {
     res.setHeader('Content-Type', 'application/json');
     if (!LIVE) { res.end(JSON.stringify({ ok: false, error: 'not in --live mode' })); return; }
@@ -136,7 +156,7 @@ const server = createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/event-stream',
                          'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     clients.add(res);
-    res.write(`data: ${JSON.stringify({ type: 'mode', live: LIVE })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: 'mode', live: LIVE, source })}\n\n`);
     if (LIVE) replayState(res);
     req.on('close', () => clients.delete(res));
     return;
@@ -345,17 +365,20 @@ async function surge() {
   const targets = list.filter(a => a.agent?.kind === 'SandboxAgent')
     .map(a => `${a.agent.metadata.namespace}/${a.agent.metadata.name}`);
   for (const ref of targets) {
-    surgeChat(ref);                       // fire-and-forget, retries inside
+    const [ns, name] = ref.split('/');
+    chatWithAgent(ns, name,               // fire-and-forget, retries inside
+      'Explain in about 120 words what you would do first in a production incident.', 'surge');
     await new Promise(r => setTimeout(r, 120));
   }
   return targets.length;
 }
 
-async function surgeChat(ref) {
-  const [ns, name] = ref.split('/');
+// One real chat to one agent: restore → LLM turn → checkpoint. Used by surge
+// and by the drawer's "talk to the agent" box. Pool-full rejections retry;
+// everything lands in the activity stream.
+async function chatWithAgent(ns, name, prompt, via) {
   const id = `surge-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-  const prompt = 'Explain in about 120 words what you would do first in a production incident.';
-  recordActivity({ agent: name, kind: 'prompt', text: prompt, via: 'surge' });
+  recordActivity({ agent: name, kind: 'prompt', text: prompt.slice(0, 400), via });
   const t0 = Date.now();
   for (let tries = 0; tries < 60; tries++) {
     try {
@@ -373,14 +396,14 @@ async function surgeChat(ref) {
         continue;
       }
       const ms = Date.now() - t0;
-      if (j.error) recordActivity({ agent: name, kind: 'error', text: j.error.message?.slice(0, 300), ms });
+      if (j.error) recordActivity({ agent: name, kind: 'error', text: j.error.message?.slice(0, 300), ms, via });
       else {
         const text = (j.result?.artifacts ?? []).flatMap(a => a.parts ?? [])
           .map(p => p.text).filter(Boolean).join(' ');
-        recordActivity({ agent: name, kind: 'reply', text: text.slice(0, 400) || '(no text)', ms });
+        recordActivity({ agent: name, kind: 'reply', text: text.slice(0, 400) || '(no text)', ms, via });
       }
       break;
-    } catch (e) { recordActivity({ agent: name, kind: 'error', text: String(e.message).slice(0, 200) }); break; }
+    } catch (e) { recordActivity({ agent: name, kind: 'error', text: String(e.message).slice(0, 200), via }); break; }
   }
   if (surgeWaiting.delete(name)) broadcastQueue();
 }
