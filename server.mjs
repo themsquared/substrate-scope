@@ -32,6 +32,11 @@ let source = SOURCE === 'auto' ? null : SOURCE;
 // kagent's controller API; the kagent adapter port-forwards
 // svc/kagent-controller 8083 itself unless this is overridden.
 const KAGENT_API = process.env.KAGENT_API || 'http://127.0.0.1:8083';
+// Pin every kubectl call (and port-forward) to one context so Scope can
+// never watch or scale a cluster you didn't point it at. Defaults to the
+// current context.
+const KUBE_CONTEXT = process.env.KUBE_CONTEXT || '';
+const KCTX = KUBE_CONTEXT ? ['--context', KUBE_CONTEXT] : [];
 
 const clients = new Set();
 const send = ev => {
@@ -52,7 +57,7 @@ const server = createServer(async (req, res) => {
       try { replicas = Math.max(1, Math.min(8, Number(JSON.parse(body).replicas))); }
       catch { return res.end(JSON.stringify({ ok: false, error: 'bad request' })); }
       // the documented ephemeral scaling path: kubectl scale workerpool
-      execFile('kubectl', ['scale', 'workerpools.ate.dev', pool.name,
+      execFile('kubectl', [...KCTX, 'scale', 'workerpools.ate.dev', pool.name,
                            '-n', pool.ns, `--replicas=${replicas}`],
         { timeout: 10_000 },
         err => res.end(JSON.stringify(err ? { ok: false, error: String(err.message).slice(0, 200) }
@@ -67,7 +72,7 @@ const server = createServer(async (req, res) => {
     if (!LIVE) { res.end(JSON.stringify({ ok: false, error: 'not in --live mode' })); return; }
     const pool = Object.values(state.pools)[0];
     if (!pool) { res.end(JSON.stringify({ ok: false, error: 'no workerpool seen yet' })); return; }
-    execFile('kubectl', ['rollout', 'restart', `deploy/${pool.name}-deployment`, '-n', pool.ns],
+    execFile('kubectl', [...KCTX, 'rollout', 'restart', `deploy/${pool.name}-deployment`, '-n', pool.ns],
       { timeout: 15_000 },
       err => res.end(JSON.stringify(err ? { ok: false, error: String(err.message).slice(0, 200) }
                                         : { ok: true })));
@@ -250,7 +255,7 @@ const demandWin = [];   // rolling demand (busy + queued), ~30s at 3s samples
 
 function scaleTo(pool, n, why) {
   lastScaleAt = Date.now();
-  execFile('kubectl', ['scale', 'workerpools.ate.dev', pool.name, '-n', pool.ns,
+  execFile('kubectl', [...KCTX, 'scale', 'workerpools.ate.dev', pool.name, '-n', pool.ns,
                        `--replicas=${n}`], { timeout: 10_000 },
     err => send({ type: 'autoscale', replicas: n, why, ok: !err }));
 }
@@ -410,7 +415,7 @@ async function chatWithAgent(ns, name, prompt, via) {
 
 function kubectl(args) {
   return new Promise(resolve => {
-    execFile('kubectl', args, { timeout: 10_000 }, (err, stdout) => {
+    execFile('kubectl', [...KCTX, ...args], { timeout: 10_000 }, (err, stdout) => {
       if (err) return resolve(null);
       try { resolve(JSON.parse(stdout)); } catch { resolve(null); }
     });
@@ -475,11 +480,21 @@ async function crdStatus() {
   return { enabled: true, workerPools, actorTemplates, actors, workers };
 }
 
+// kagent 0.10+ suffixes generated ActorTemplate names with 16 hex chars
+// (sre-oncall-714ad4c35acf15a6). Strip it so chips, chat, and session ingest
+// all speak the agent's own name.
+const deSuffix = n => typeof n === 'string' ? n.replace(/-[0-9a-f]{16}$/, '') : n;
+
 let pollTick = 0;
 async function poll() {
   pollTick++;
   let snap = null;
   if (source !== 'crd') snap = await fetchStatus();
+  if (snap) {
+    for (const a of snap.actors ?? []) a.actorTemplateName = deSuffix(a.actorTemplateName);
+    for (const w of snap.workers ?? []) w.actorTemplate = deSuffix(w.actorTemplate);
+    for (const t of snap.actorTemplates ?? []) t.name = deSuffix(t.name);
+  }
   if (!snap && source !== 'kagent' && pollTick % 3 === 1) snap = await crdStatus();
   if (!snap) return;
   for (const p of snap.workerPools ?? [])
@@ -502,7 +517,7 @@ server.listen(PORT, async () => {
     ? ' (kubectl-only; per-session actor state needs the kagent source or a future ateapi adapter)' : ''}`);
   if (source === 'kagent' && !process.env.KAGENT_API) {
     const forward = (svc, ports) => {
-      const c = spawn('kubectl', ['port-forward', '-n', 'kagent', svc, ports],
+      const c = spawn('kubectl', [...KCTX, 'port-forward', '-n', 'kagent', svc, ports],
                       { stdio: 'ignore' });
       c.on('exit', () => setTimeout(() => forward(svc, ports), 2000)); // survive pod restarts
     };
