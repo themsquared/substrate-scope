@@ -330,10 +330,14 @@ async function pollSessions() {
         const prev = seenTasks.get(task.id);
         if (prev === state) continue;
         const agent = agentFromAdk(task.metadata?.adk_app_name);
+        // OBO subject: the user this session runs on behalf of. On an OBO
+        // cluster this is the exchanged `sub`; on the OSS rig it's the
+        // service-account user (admin@kagent.dev). Real either way — no faking.
+        const obo = task.metadata?.adk_user_id || null;
         if (prev === undefined) {
           const um = (task.history ?? []).find(m => m.role === 'user');
           const text = (um?.parts ?? []).map(p => p.text).filter(Boolean).join(' ');
-          if (text) recordActivity({ agent, kind: 'prompt', text: text.slice(0, 400), via: 'kagent-ui' });
+          if (text) recordActivity({ agent, kind: 'prompt', text: text.slice(0, 400), via: 'kagent-ui', obo });
         }
         if (state === 'completed' || state === 'failed') {
           const parts = [...(task.status?.message?.parts ?? []),

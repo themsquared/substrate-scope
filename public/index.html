@@ -215,6 +215,9 @@
   .d-state.cold{color:var(--cold);border-color:rgba(125,214,232,.4)}
   .d-state.queued{color:var(--warn);border-color:rgba(242,143,173,.4)}
   .d-sub{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:6px;line-height:1.6}
+  .d-obo-head{font-family:var(--mono);font-size:10px;color:var(--cold);margin-top:4px;
+              letter-spacing:.02em}
+  .d-obo{font-family:var(--mono);font-size:9px;color:var(--cold);margin-top:4px;opacity:.85}
   #d-close{position:absolute;top:12px;right:14px;font-family:var(--mono);font-size:16px;
            color:var(--muted);background:var(--panel-2);border:1px solid var(--line);
            border-radius:6px;width:28px;height:28px;cursor:pointer}
@@ -305,6 +308,7 @@
   <div class="d-head">
     <div class="d-title"><span id="d-name"></span><span class="d-state" id="d-state"></span><span class="d-flag" id="d-flag" hidden></span></div>
     <div class="d-sub" id="d-sub"></div>
+    <div class="d-obo-head" id="d-obo-head" hidden></div>
     <button id="d-close" aria-label="close">×</button>
   </div>
   <div class="d-body" id="d-body"></div>
@@ -742,10 +746,12 @@
   // ── per-agent activity + drawer ────────────────────────
   const agentAct = new Map();     // name -> [{t, kind, text, ms}]
   let drawerAgent = null;
-  function actPush(name, kind, text, ms, via){
+  function actPush(name, kind, text, ms, via, obo){
     if (!agentAct.has(name)) agentAct.set(name, []);
     const list = agentAct.get(name);
-    list.push({ t: Date.now(), kind, text, ms, via });
+    list.push({ t: Date.now(), kind, text, ms, via, obo });
+    // remember who this agent is currently acting on behalf of
+    if (obo && actors[name]) actors[name].obo = obo;
     if (list.length > 80) list.shift();
     if (drawerAgent === name) renderDrawer();
   }
@@ -771,7 +777,7 @@
     if (!name || !text) return;
     $('d-input').value = '';
     if (sim){
-      actPush(name, 'prompt', text, undefined, 'you');
+      actPush(name, 'prompt', text, undefined, 'you', 'you@substrate-scope');
       handle({ type: 'restore', name, ms: 240 + Math.round(Math.random() * 520) });
       log('run', `<b>session</b> kagent/${name} activated from the drawer`);
     } else {
@@ -805,6 +811,9 @@
       + ` · ${a.el.querySelector('.meta').textContent}`
       + ((a.fairWork || a.fairQueue)
          ? ` · ${a.fairWork ?? 0}s on workers / ${a.fairQueue ?? 0}s queued` : '');
+    const ob = $('d-obo-head');
+    ob.hidden = !a.obo;
+    if (a.obo) ob.textContent = `⇅ acting on behalf of ${a.obo}`;
     const list = agentAct.get(drawerAgent) ?? [];
     const body = $('d-body');
     body.innerHTML = list.length ? '' :
@@ -818,6 +827,11 @@
       d.innerHTML = `<div class="d-kind">${e.kind}${ms}${via}<span class="d-t">${time}</span></div>
                      <div class="d-text"></div>`;
       d.querySelector('.d-text').textContent = e.text ?? '';
+      if (e.obo){
+        const o = document.createElement('div'); o.className = 'd-obo';
+        o.textContent = `⇅ on behalf of ${e.obo}`;
+        d.appendChild(o);
+      }
       body.appendChild(d);
     }
   }
@@ -976,11 +990,12 @@
       case 'snapshot':
         if (ev.workerPools?.length) $('pool-name').textContent = ev.workerPools[0].name;
         applySnapshot(ev); break;
-      case 'activity': actPush(ev.e.agent, ev.e.kind, ev.e.text, ev.e.ms, ev.e.via); break;
+      case 'activity': actPush(ev.e.agent, ev.e.kind, ev.e.text, ev.e.ms, ev.e.via, ev.e.obo); break;
       case 'activity_history':
         for (const e of ev.items ?? []){
           if (!agentAct.has(e.agent)) agentAct.set(e.agent, []);
           agentAct.get(e.agent).push(e);
+          if (e.obo && actors[e.agent]) actors[e.agent].obo = e.obo;
         }
         if (drawerAgent) renderDrawer();
         break;
@@ -1077,6 +1092,11 @@
                  'otel-agent','backstage-agent','crossplane-agent','velero-agent',
                  'keda-agent','linkerd-agent','harbor-agent','falco-agent'];
   let nextName = 0;
+  // sim OBO subjects: illustrates on-behalf-of identity with no cluster. In
+  // live mode the real adk_user_id (the OBO sub) replaces these.
+  const OBO_USERS = ['alice@acme.io', 'bob@acme.io', 'carol@acme.io',
+                     'dana@acme.io', 'ci-bot@acme.io'];
+  const randUser = () => OBO_USERS[Math.floor(Math.random() * OBO_USERS.length)];
   let timers = [];
   function stopSim(){ timers.forEach(clearTimeout); timers = []; }
   function later(fn, ms){ timers.push(setTimeout(fn, ms)); }
@@ -1095,9 +1115,11 @@
   function demand(){
     if (!sim) return;
     const idle = Object.keys(actors).filter(n => actors[n].state === 'cold');
-    if (idle.length)
-      handle({ type:'restore', name: idle[Math.floor(Math.random()*idle.length)],
-               ms: 240 + Math.round(Math.random()*520) });
+    if (idle.length){
+      const name = idle[Math.floor(Math.random()*idle.length)];
+      actPush(name, 'prompt', 'user request', undefined, 'kagent-ui', randUser());
+      handle({ type:'restore', name, ms: 240 + Math.round(Math.random()*520) });
+    }
     later(demand, 700 + Math.random()*1600);
   }
 
