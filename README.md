@@ -58,6 +58,16 @@ clusters the full experience. The ateapi `Control` service already exposes
 [`pkg/proto/ateapipb/ateapi.proto`](https://github.com/agent-substrate/substrate/blob/main/pkg/proto/ateapipb/ateapi.proto));
 what's needed is the gRPC client + ServiceAccount JWT wiring.
 
+## One chip per session
+
+By default each chip is an agent (ActorTemplate), and its sessions collapse
+into a snapshot count on the shelf. Open http://localhost:8123/?group=session
+to split them: one chip per actor, i.e. per conversation (with kagent, one per
+AgentInstance), labelled `template·<actor id suffix>`. Two chats on the same
+agent then show up as two sessions competing for the pool. The drawer for a
+session chip shows that agent's activity feed, and "talk to the agent" still
+addresses the agent.
+
 ## Load generation (kagent clusters)
 
 `stimulate.mjs` drives real chats at SandboxAgents so the board moves:
