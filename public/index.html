@@ -599,6 +599,19 @@
   // pods, real actor runtime states, real assignments. We diff assignments
   // against the last snapshot to animate restores and checkpoints.
   const liveAssign = new Map();   // actorId -> workerPod | null
+
+  // Chip granularity. Default: one chip per agent (template); its sessions
+  // collapse into a snapshot count. ?group=session splits them: one chip per
+  // actor, i.e. per conversation (a kagent AgentInstance), labelled
+  // template·<id suffix>, so concurrent chats on one agent show up as separate
+  // sessions multiplexed onto the pool.
+  const SPLIT_SESSIONS = new URLSearchParams(location.search).get('group') === 'session';
+  function chipName(ae){
+    const tpl = ae.actorTemplateName, id = String(ae.actorId ?? '');
+    if (!tpl) return 'actor-' + id.slice(0, 8);
+    if (!SPLIT_SESSIONS) return tpl;
+    return `${tpl}·${id.replace(/-/g, '').slice(-6)}`;
+  }
   function syncBaysLive(pods){
     const current = workers.map(w => w.pod);
     if (pods.length === current.length && pods.every((p,i) => p === current[i])) return;
@@ -639,22 +652,27 @@
     // running sessions invisible whenever their entry flickered out.
     const asgByName = new Map();   // template name -> {pod, status?}
     for (const w of wlist)
-      if (w.actorId && w.actorTemplate) asgByName.set(w.actorTemplate, w.workerPod);
+      if (w.actorId && w.actorTemplate)
+        asgByName.set(chipName({ actorId: w.actorId, actorTemplateName: w.actorTemplate }), w.workerPod);
 
     // One agent (template) can own MANY actor entries at once — its golden
     // actor plus one session actor per chat. The chip represents the agent:
     // hot if the workers list assigns it a pod; otherwise a stack of snapshots.
     const groups = new Map();
     for (const ae of s.actors ?? []){
-      const name = ae.actorTemplateName || 'actor-'+String(ae.actorId).slice(0,8);
+      const name = chipName(ae);
       if (!groups.has(name)) groups.set(name, []);
       groups.get(name).push(ae);
     }
     // an assigned agent whose actor entries flickered out entirely still
     // deserves its bay visit
-    for (const w of wlist)
-      if (w.actorId && w.actorTemplate && !groups.has(w.actorTemplate))
-        groups.set(w.actorTemplate, []);
+    const tplByChip = new Map();
+    for (const w of wlist){
+      if (!w.actorId || !w.actorTemplate) continue;
+      const n = chipName({ actorId: w.actorId, actorTemplateName: w.actorTemplate });
+      tplByChip.set(n, w.actorTemplate);
+      if (!groups.has(n)) groups.set(n, []);
+    }
 
     function farewell(a, name){
       if (a.worker){
@@ -669,6 +687,7 @@
 
     for (const [name, entries] of groups){
       const a = ensureActor(name, entries[0]?.actorTemplateNamespace || 'kagent');
+      a.template = entries[0]?.actorTemplateName ?? tplByChip.get(name) ?? a.template ?? name;
       const pod = asgByName.get(name) ?? null;
       const hot = entries.find(ae => podByActorId[ae.actorId])
                ?? (pod ? { status: 'Running' } : null);
@@ -782,7 +801,7 @@
       log('run', `<b>session</b> kagent/${name} activated from the drawer`);
     } else {
       fetch('/chat', { method: 'POST',
-        body: JSON.stringify({ ns: actors[name]?.ns ?? 'kagent', agent: name, text }) })
+        body: JSON.stringify({ ns: actors[name]?.ns ?? 'kagent', agent: actors[name]?.template ?? name, text }) })
         .then(r => r.json())
         .then(j => { if (!j.ok) actPush(name, 'error', j.error ?? 'chat failed', undefined, 'you'); })
         .catch(() => actPush(name, 'error', 'chat request failed', undefined, 'you'));
@@ -814,7 +833,10 @@
     const ob = $('d-obo-head');
     ob.hidden = !a.obo;
     if (a.obo) ob.textContent = `⇅ acting on behalf of ${a.obo}`;
-    const list = agentAct.get(drawerAgent) ?? [];
+    // a session chip also shows its agent's feed (prompts/replies are reported per agent)
+    const list = [...(agentAct.get(drawerAgent) ?? []),
+                  ...(a.template && a.template !== drawerAgent ? agentAct.get(a.template) ?? [] : [])]
+                 .sort((x, y) => x.t - y.t);
     const body = $('d-body');
     body.innerHTML = list.length ? '' :
       '<div class="d-empty">no activity yet — waiting for this agent\'s next session</div>';

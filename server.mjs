@@ -166,7 +166,8 @@ const server = createServer(async (req, res) => {
     req.on('close', () => clients.delete(res));
     return;
   }
-  const path = req.url === '/' ? '/index.html' : req.url.split('?')[0];
+  const bare = req.url.split('?')[0];          // so /?group=session still serves the board
+  const path = bare === '/' ? '/index.html' : bare;
   try {
     const body = await readFile(join(ROOT, path));
     res.writeHead(200, { 'Content-Type':
